@@ -1,0 +1,81 @@
+{
+    "name": "@llii/db",
+    "version": "0.0.16",
+    "description": "A model-driven TypeScript ORM built on Knex.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ZMmouse/lli-db.git"
+    },
+    "homepage": "https://github.com/ZMmouse/lli-db#readme",
+    "bugs": {
+        "url": "https://github.com/ZMmouse/lli-db/issues"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "NOTICE",
+        "CHANGELOG.md"
+    ],
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "typecheck:contracts": "tsc -p test/types/tsconfig.json",
+        "lint": "eslint libs test scripts --max-warnings=0",
+        "test": "jest",
+        "test:safe": "jest --runInBand",
+        "test-c": "jest --coverage",
+        "verify": "npm run typecheck && npm run typecheck:contracts && npm run lint && npm run test:safe",
+        "prepack": "npm run clean && npm run verify && npm run build",
+        "pack:check": "npm pack --dry-run",
+        "package:smoke": "npm run clean && npm run build && tsx scripts/package-smoke.ts",
+        "security:scan": "tsx scripts/security-scan.ts",
+        "security:scan:history": "tsx scripts/security-scan.ts --history",
+        "sbom": "tsx scripts/generate-sbom.ts",
+        "release:check:metadata": "tsx scripts/release-check.ts --metadata-only",
+        "release:check": "tsx scripts/release-check.ts",
+        "release:verify": "npm run verify && npm run build && npm run pack:check && npm run package:smoke && npm run security:scan && npm run sbom && npm run release:check",
+        "prepublishOnly": "npm run release:check",
+        "example": "ts-node examples/index.ts",
+        "log": "tsx scripts/changelog-generator.ts",
+        "pub": "npm publish --provenance --access public"
+    },
+    "publishConfig": {
+        "access": "public",
+        "provenance": true,
+        "registry": "https://registry.npmjs.org/"
+    },
+    "devDependencies": {
+        "@types/jest": "^30.0.0",
+        "@types/lodash": "^4.17.20",
+        "@types/node": "^24.0.10",
+        "@types/pg": "^8.15.4",
+        "@typescript-eslint/eslint-plugin": "^8.36.0",
+        "@typescript-eslint/parser": "^8.36.0",
+        "better-sqlite3": "^12.5.0",
+        "dotenv": "^17.1.0",
+        "eslint": "^9.30.1",
+        "eslint-config-prettier": "^10.1.5",
+        "eslint-plugin-prettier": "^5.5.1",
+        "glob": "^11.0.3",
+        "jest": "^30.0.4",
+        "pg": "^8.16.3",
+        "prettier": "^3.6.2",
+        "sqlite3": "^5.1.7",
+        "ts-jest": "^29.4.0",
+        "ts-node": "^10.9.2",
+        "tsx": "^4.20.3",
+        "typescript": "^5.5.3"
+    },
+    "private": false,
+    "dependencies": {
+        "dayjs": "^1.11.13",
+        "knex": "^3.1.0",
+        "lodash": "^4.17.21",
+        "tslib": "^2.8.1",
+        "uuid": "^11.1.0"
+    }
+}

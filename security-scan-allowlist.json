@@ -1,0 +1,40 @@
+{
+    "entries": [
+        {
+            "rule": "*",
+            "path": "scripts/security-scan.ts",
+            "scopes": ["worktree", "history"],
+            "reason": "Scanner source necessarily contains its own detection expressions."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "test/**",
+            "scopes": ["worktree"],
+            "reason": "Isolated tests use synthetic local-only credential fixtures."
+        },
+        {
+            "rule": "phone-cn",
+            "path": "test/**",
+            "scopes": ["worktree"],
+            "reason": "Isolated tests use synthetic phone fixtures."
+        },
+        {
+            "rule": "phone-cn",
+            "path": "db/初始化数据/**",
+            "scopes": ["worktree"],
+            "reason": "Development seed SQL contains documented synthetic identities and is excluded from npm."
+        },
+        {
+            "rule": "credential-literal",
+            "path": "examples/index.ts",
+            "scopes": ["worktree"],
+            "reason": "Example application uses a documented synthetic password and is excluded from npm."
+        },
+        {
+            "rule": "email",
+            "path": "pnpm-lock.yaml",
+            "scopes": ["worktree", "history"],
+            "reason": "Lockfile records public third-party package metadata; credential rules remain active."
+        }
+    ]
+}

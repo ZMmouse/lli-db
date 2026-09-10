@@ -1,0 +1,25 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": ["config:recommended", "schedule:monthly"],
+    "dependencyDashboard": true,
+    "minimumReleaseAge": "7 days",
+    "rangeStrategy": "update-lockfile",
+    "lockFileMaintenance": {
+        "enabled": true,
+        "schedule": ["before 5am on the first day of the month"]
+    },
+    "packageRules": [
+        {
+            "description": "Require manual approval for production major upgrades",
+            "matchDepTypes": ["dependencies"],
+            "matchUpdateTypes": ["major"],
+            "dependencyDashboardApproval": true
+        },
+        {
+            "description": "Group non-major development dependency updates",
+            "matchDepTypes": ["devDependencies"],
+            "matchUpdateTypes": ["minor", "patch"],
+            "groupName": "development dependencies"
+        }
+    ]
+}

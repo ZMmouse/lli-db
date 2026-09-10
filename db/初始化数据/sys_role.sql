@@ -1,0 +1,2 @@
+INSERT INTO sys_role (id, name, created_at, created_by, updated_at, updated_by, deleted_at, deleted) VALUES ('1', '管理员', '2025-07-08 03:50:03.516000 +00:00', '1', '2025-07-08 03:50:03.516000 +00:00', '1', null, null);
+INSERT INTO sys_role (id, name, created_at, created_by, updated_at, updated_by, deleted_at, deleted) VALUES ('2', '普通用户', '2025-07-08 03:50:03.516000 +00:00', '1', '2025-07-08 03:50:03.516000 +00:00', '1', null, null);
