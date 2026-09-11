@@ -30,7 +30,7 @@ import type {
 } from './types/database';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, rename, rm, stat } from 'node:fs/promises';
+import { access, link, mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import knex from 'knex';
 import { validateStoredData } from './stored-data-validator';
@@ -502,8 +502,22 @@ export class Database implements IDatabase {
                 }
             }
             try {
-                await rename(temporary, destination);
-                temporary = undefined;
+                if (options.overwrite) {
+                    await rename(temporary, destination);
+                    temporary = undefined;
+                } else {
+                    try {
+                        await link(temporary, destination);
+                    } catch (error) {
+                        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+                            throw new LliDbError('backup destination already exists', 'LLI400');
+                        }
+                        throw error;
+                    }
+                    const linkedTemporary = temporary;
+                    temporary = undefined;
+                    await rm(linkedTemporary, { force: true });
+                }
             } catch (error) {
                 if (previousDestination) {
                     await rename(previousDestination, destination);

@@ -8,7 +8,7 @@ import type { IDiagnosticEvent, IModel } from '../libs';
 
 jest.mock('node:fs/promises', () => {
     const actual = jest.requireActual<typeof fsPromises>('node:fs/promises');
-    return { ...actual, rename: jest.fn(actual.rename) };
+    return { ...actual, link: jest.fn(actual.link), rename: jest.fn(actual.rename) };
 });
 
 const model: IModel = {
@@ -139,6 +139,30 @@ describe('SQLite backup and integrity operations', () => {
             });
             expect(existsSync(destination)).toBe(true);
         } finally {
+            await db.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    test('does not overwrite a destination created during backup finalization', async () => {
+        const { db, directory } = await createDatabase();
+        const destination = join(directory, 'raced.sqlite3');
+        const link = jest.mocked(fsPromises.link);
+        const actualLink = jest.requireActual<typeof fsPromises>('node:fs/promises').link;
+        link.mockImplementationOnce(async (temporary, target) => {
+            writeFileSync(target, 'created by another process');
+            return actualLink(temporary, target);
+        });
+        try {
+            await expect(db.backup({ destination })).rejects.toMatchObject({ code: 'LLI400' });
+            await expect(fsPromises.readFile(destination, 'utf8')).resolves.toBe(
+                'created by another process',
+            );
+            expect(
+                readdirSync(directory).some((name) => name.startsWith('raced.sqlite3.tmp-')),
+            ).toBe(false);
+        } finally {
+            link.mockImplementation(actualLink);
             await db.close();
             rmSync(directory, { recursive: true, force: true });
         }
