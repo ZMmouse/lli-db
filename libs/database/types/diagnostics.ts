@@ -7,7 +7,24 @@ export type IDiagnosticEventType =
     | 'migration:error'
     | 'migration:model:start'
     | 'migration:model:success'
-    | 'migration:model:error';
+    | 'migration:model:error'
+    | 'revision:conflict'
+    | 'cursor:page:start'
+    | 'cursor:page:success'
+    | 'cursor:page:error'
+    | 'snapshot:open'
+    | 'snapshot:close'
+    | 'snapshot:expire'
+    | 'snapshot:limit'
+    | 'backup:start'
+    | 'backup:success'
+    | 'backup:error'
+    | 'integrity-check:start'
+    | 'integrity-check:success'
+    | 'integrity-check:error'
+    | 'stored-data-validation:start'
+    | 'stored-data-validation:success'
+    | 'stored-data-validation:error';
 
 export interface IDiagnosticError {
     name: string;
@@ -22,6 +39,10 @@ export interface IDiagnosticEvent {
     durationMs?: number;
     resultCount?: number;
     modelCount?: number;
+    snapshotCount?: number;
+    checkedRows?: number;
+    errorCount?: number;
+    size?: number;
     error?: Readonly<IDiagnosticError>;
 }
 

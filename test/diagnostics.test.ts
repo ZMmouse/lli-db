@@ -8,6 +8,7 @@ const models: IModel[] = [
         code: 'diagnosticRecord',
         name: 'diagnostic record',
         tableName: 'diagnostic_record',
+        useRevision: true,
         attributes: {
             secret: {
                 code: 'secret',
@@ -52,6 +53,18 @@ describe('database diagnostics', () => {
                 .createQueryBuilder('diagnosticRecord')
                 .insert({ id: 'record-1', secret: secretValue })
                 .execute();
+            await db.query('diagnosticRecord').findCursorPage({
+                orderBy: [{ field: 'id', direction: 'asc' }],
+                limit: 10,
+            });
+            await expect(
+                db.query('diagnosticRecord').update({
+                    where: { id: 'record-1' },
+                    expectedRevision: 99,
+                    data: { secret: secretValue },
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40901' });
+            await db.validateStoredData();
             await expect(
                 db
                     .createQueryBuilder('diagnosticRecord')
@@ -69,6 +82,11 @@ describe('database diagnostics', () => {
                     'query:start',
                     'query:success',
                     'query:error',
+                    'cursor:page:start',
+                    'cursor:page:success',
+                    'revision:conflict',
+                    'stored-data-validation:start',
+                    'stored-data-validation:success',
                 ]),
             );
             expect(events.every(Object.isFrozen)).toBe(true);

@@ -20,6 +20,23 @@ const logLevels: Record<IDiagnosticEventType, LogLevel> = {
     'migration:model:start': 'debug',
     'migration:model:success': 'debug',
     'migration:model:error': 'error',
+    'revision:conflict': 'info',
+    'cursor:page:start': 'debug',
+    'cursor:page:success': 'debug',
+    'cursor:page:error': 'error',
+    'snapshot:open': 'debug',
+    'snapshot:close': 'debug',
+    'snapshot:expire': 'info',
+    'snapshot:limit': 'warn',
+    'backup:start': 'info',
+    'backup:success': 'info',
+    'backup:error': 'error',
+    'integrity-check:start': 'debug',
+    'integrity-check:success': 'debug',
+    'integrity-check:error': 'error',
+    'stored-data-validation:start': 'info',
+    'stored-data-validation:success': 'info',
+    'stored-data-validation:error': 'error',
 };
 
 const safelyInvoke = (callback: () => Promise<void> | void) => {
