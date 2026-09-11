@@ -137,6 +137,23 @@ const applyKeysetWhere = (
     });
 };
 
+const toCursorValue = (
+    db: Database,
+    model: IModel,
+    field: string,
+    rawRow: Record<string, unknown>,
+    transformedRow: Record<string, unknown>,
+) => {
+    const rawValue = rawRow[field];
+    if (rawValue === null || rawValue === undefined) return rawValue;
+    const attribute = model.attributes[field];
+    const base = db.fieldTypeManager.getBaseFieldType(attribute.type);
+    if (base.dbFiledType === DBFieldTypeEnum.DATETIME) {
+        return new Date(rawValue as string | number).toISOString();
+    }
+    return transformedRow[field];
+};
+
 export const findCursorPage = async <T>(
     db: Database,
     code: string,
@@ -187,12 +204,18 @@ export const findCursorPage = async <T>(
         const rawRows = await query;
         const hasMore = rawRows.length > limit;
         const pageRows = hasMore ? rawRows.slice(0, limit) : rawRows;
+        const rawLast = pageRows[pageRows.length - 1]
+            ? { ...(pageRows[pageRows.length - 1] as Record<string, unknown>) }
+            : undefined;
         const rows = fromRow(db, model, pageRows) as T[];
         const last = rows[rows.length - 1] as Record<string, unknown> | undefined;
         const nextPosition =
-            hasMore && last
+            hasMore && last && rawLast
                 ? (Object.fromEntries(
-                      orderBy.map((order) => [order.field, last[order.field]]),
+                      orderBy.map((order) => [
+                          order.field,
+                          toCursorValue(db, model, order.field, rawLast, last),
+                      ]),
                   ) as Record<string, string | number | boolean | null>)
                 : undefined;
         const result = {

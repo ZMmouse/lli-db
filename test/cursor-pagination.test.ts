@@ -6,6 +6,7 @@ interface CursorRecord {
     group: string;
     rank: number | null;
     title: string;
+    at: string | null;
 }
 
 const model: IModel = {
@@ -32,6 +33,12 @@ const model: IModel = {
             columnName: 'title_text',
             type: SysFieldTypeEnum.TEXT,
             required: true,
+        },
+        at: {
+            code: 'at',
+            name: 'at',
+            columnName: 'at_time',
+            type: SysFieldTypeEnum.DATETIME,
         },
         payload: {
             code: 'payload',
@@ -272,6 +279,46 @@ describe('keyset cursor pagination', () => {
             } while (after);
             expect(seen).toHaveLength(6);
             expect(new Set(seen)).toEqual(new Set(['a', 'b', 'c', 'd', 'e', 'z']));
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('uses a lossless datetime position even when rows use the legacy display format', async () => {
+        const db = await createDatabase();
+        try {
+            const first = await db.query<CursorRecord>('cursorRecord').create({
+                data: {
+                    group: 'datetime',
+                    title: 'first',
+                    at: '2026-09-11T13:00:00.123Z',
+                },
+            });
+            const second = await db.query<CursorRecord>('cursorRecord').create({
+                data: {
+                    group: 'datetime',
+                    title: 'second',
+                    at: '2026-09-11T14:00:00.456Z',
+                },
+            });
+            const seen: string[] = [];
+            let after: Record<string, string | number | boolean | null> | undefined;
+            for (let pageNumber = 0; pageNumber < 3; pageNumber += 1) {
+                const page = await db.query<CursorRecord>('cursorRecord').findCursorPage({
+                    where: { group: 'datetime' },
+                    orderBy: [{ field: 'at', direction: 'asc' }],
+                    limit: 1,
+                    ...(after ? { after } : {}),
+                });
+                seen.push(...page.rows.map((row) => row.id));
+                if (page.nextPosition) {
+                    expect(page.nextPosition.at).toMatch(/^2026-09-11T\d{2}:00:00\.\d{3}Z$/);
+                }
+                after = page.nextPosition;
+                if (!after) break;
+            }
+
+            expect(seen).toEqual([first.id, second.id]);
         } finally {
             await db.close();
         }
