@@ -91,8 +91,11 @@ describe('release supply-chain controls', () => {
         expect(publishWorkflow).toContain('id-token: write');
         expect(publishWorkflow).toContain('environment: npm');
         expect(publishWorkflow).toContain('runtime: node@22');
+        expect(publishWorkflow).toContain('workflow_dispatch:');
+        expect(publishWorkflow).toContain('ref: ${{ inputs.tag || github.ref }}');
+        expect(publishWorkflow).toContain('npm install --global npm@11.19.1');
         expect(publishWorkflow).toContain('npm run release:verify');
-        expect(publishWorkflow).toContain('npm run pub');
+        expect(publishWorkflow).toContain('npm publish --access public');
         expect(publishWorkflow).not.toMatch(/NODE_AUTH_TOKEN|NPM_TOKEN/);
         expect(`${ciWorkflow}\n${publishWorkflow}`).not.toMatch(
             /^\s*uses:\s*[^\s#]+@(?![a-f0-9]{40}(?:\s|$))/m,
