@@ -1,6 +1,6 @@
 {
     "name": "@llii/db",
-    "version": "0.0.16",
+    "version": "0.1.0",
     "description": "A model-driven TypeScript ORM built on Knex.",
     "license": "MIT",
     "engines": {
