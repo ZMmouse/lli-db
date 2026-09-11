@@ -127,7 +127,7 @@ export const db = new Database({
 应用退出时应关闭连接池：
 
 ```typescript
-await db.knex.destroy();
+await db.close();
 ```
 
 完整支持等级、client 别名和测试范围见 [数据库驱动兼容性](docs/数据库驱动兼容性.md)。矩阵外的 Knex client 会在 `Database` 创建时抛出 `LLI400`。
@@ -254,7 +254,7 @@ await db.query('user').deleteMany({
 
 新代码应统一使用 `where`。`filters` 作为向后兼容别名仍可用于顶层查询、写操作和 `populate` 参数，但已在 TypeScript 类型中标记为弃用；当 `where` 与 `filters` 同时出现时，两组条件按 AND 合并，不会静默忽略任意一组。
 
-底层 QueryBuilder 的 `returning(fieldCode)` 接收模型字段 code，而不是数据库列名。构建 SQL 时会自动转换自定义 `columnName`；返回对象的键名仍遵循 Knex 和当前数据库驱动的原始返回格式。
+底层 QueryBuilder 的 `returning(fieldCode)` 接收模型字段 code，而不是数据库列名。构建 SQL 时会自动转换自定义 `columnName`，返回对象也统一使用模型字段 code。可以传入 `'*'`、单个字段或非空字段数组；空字段、重复字段、未知字段以及 `'*'` 与其他字段混用都会在执行 SQL 前抛出 `LLI400`。写操作需要稳定的统一结果时使用 `executeMutation<T>()`，返回 `{ count, rows }`；未调用 `returning()` 时 `rows` 为空数组。
 
 查询及写入 API 不会修改调用方传入的 `data`、`select`、`populate` 或 `where` 对象；字段名转换、关联查询所需字段和内置中间件数据都在内部副本上处理。
 
@@ -625,7 +625,7 @@ const db = new Database({
 });
 ```
 
-模型设置 `useRevision: true` 后会注入 `Revision` 扩展字段，创建生命周期由扩展字段中间件处理，记录从 `revision = 1` 开始。带 `expectedRevision` 的 update/delete 使用单条条件语句完成比较和修改，条件未命中时抛出 `LLI40901`。`findCursorPage()` 返回未签名的 `nextPosition`；外部 cursor token、身份和权限绑定仍应由调用方完成。
+模型设置 `useRevision: true` 后会注入 `Revision` 扩展字段，创建生命周期由扩展字段中间件处理，记录从 `revision = 1` 开始。`expectedRevision` 只属于 update/delete 的 `IMutationParams`；其他读写操作传入该字段会抛出 `LLI400`。带 `expectedRevision` 的 update/delete 使用单条条件语句完成比较和修改，条件未命中时抛出 `LLI40901`。`findCursorPage()` 返回未签名的 `nextPosition`；外部 cursor token、身份和权限绑定仍应由调用方完成。
 
 ```typescript
 const page = await db.query('article').findCursorPage({
