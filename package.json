@@ -3,6 +3,9 @@
     "version": "0.0.16",
     "description": "A model-driven TypeScript ORM built on Knex.",
     "license": "MIT",
+    "engines": {
+        "pnpm": ">=12.3.4 <13"
+    },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/ZMmouse/lli-db.git"
