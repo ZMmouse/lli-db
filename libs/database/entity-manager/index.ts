@@ -450,12 +450,12 @@ export class EntityManager {
 
             return this.db.transaction(async ({ trx }) => {
                 if (expectedRevisionId !== undefined) {
-                    let query = this.createQueryBuilder(code)
-                        .where({
-                            id: expectedRevisionId,
-                            revision: ctx.params.expectedRevision,
-                        })
-                        .transacting(trx);
+                    const deleteWhere: IAnyObject = {
+                        id: expectedRevisionId,
+                        revision: ctx.params.expectedRevision,
+                    };
+                    if (model.useLogicDelete) deleteWhere.deleted = { notEq: true };
+                    let query = this.createQueryBuilder(code).where(deleteWhere).transacting(trx);
                     if (model.useLogicDelete) {
                         query = query
                             .update({ deleted: true, deletedAt: new Date() })

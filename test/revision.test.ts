@@ -247,6 +247,18 @@ describe('revision optimistic concurrency', () => {
             const raw = await db.knex('revision_record').where({ id: created.id }).first();
             expect(raw).toMatchObject({ deleted: 1, revision: 2 });
             await expect(
+                db.query('revisionRecord').delete({
+                    where: { id: created.id },
+                    expectedRevision: 2,
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40901' });
+            await expect(
+                db.query('revisionRecord').delete({ where: { id: created.id } }),
+            ).resolves.toBe(0);
+            await expect(
+                db.knex('revision_record').where({ id: created.id }).first(),
+            ).resolves.toMatchObject({ deleted: 1, revision: 2 });
+            await expect(
                 db.query('revisionRecord').update({
                     where: { id: created.id },
                     expectedRevision: 2,

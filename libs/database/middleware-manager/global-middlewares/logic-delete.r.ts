@@ -31,6 +31,8 @@ export const registerLogicDeleteRMiddleware = (middlewareManager: MiddlewareMana
     middlewareManager.registerGlobalMiddleware('findMany', mixinWhereCondition);
     middlewareManager.registerGlobalMiddleware('update', mixinWhereCondition);
     middlewareManager.registerGlobalMiddleware('updateMany', mixinWhereCondition);
+    middlewareManager.registerGlobalMiddleware('delete', mixinWhereCondition);
+    middlewareManager.registerGlobalMiddleware('deleteMany', mixinWhereCondition);
     middlewareManager.registerGlobalMiddleware('queryPage', mixinWhereCondition);
     middlewareManager.registerGlobalMiddleware('count', mixinWhereCondition);
     middlewareManager.registerGlobalMiddleware('max', mixinWhereCondition);
