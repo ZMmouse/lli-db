@@ -8,6 +8,7 @@ import { registerTreeCUMiddleware } from './global-middlewares/tree.cu';
 import { normalizeQueryParams } from '../query/helpers/normalize-params';
 import { cloneDeep } from 'lodash';
 import { toLifecycleAction } from '../lifecycles';
+import { validateWriteParams } from '../entity-manager/validate-write';
 
 export class MiddlewareManager {
     private globalMiddlewares: Map<IAction, IMiddleware<IMiddlewareCtx>[]> = new Map();
@@ -53,6 +54,7 @@ export class MiddlewareManager {
             state: {},
             result: null,
         };
+        validateWriteParams(this.db, model, action, ctx.params);
         const lifecycleStates = await this.db.lifecycleProvider.run(
             toLifecycleAction('before', action),
             modelCode,
