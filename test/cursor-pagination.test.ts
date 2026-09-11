@@ -102,7 +102,10 @@ describe('keyset cursor pagination', () => {
             expect(first.nextPosition).toEqual({ rank: 1, id: 'b' });
 
             await db.knex('cursor_record').insert({
-                id: '0', group_code: 'one', rank_value: 0, title_text: 'inserted before',
+                id: '0',
+                group_code: 'one',
+                rank_value: 0,
+                title_text: 'inserted before',
             });
             const second = await db.query<CursorRecord>('cursorRecord').findCursorPage({
                 where: { group: 'one' },
@@ -158,17 +161,110 @@ describe('keyset cursor pagination', () => {
         }
     });
 
+    test('continues after the cursor row is deleted', async () => {
+        const db = await createDatabase();
+        try {
+            const first = await db.query<CursorRecord>('cursorRecord').findCursorPage({
+                where: { group: 'one' },
+                orderBy: [{ field: 'rank', direction: 'asc' }],
+                limit: 2,
+            });
+            await db.knex('cursor_record').where({ id: 'b' }).delete();
+            const second = await db.query<CursorRecord>('cursorRecord').findCursorPage({
+                where: { group: 'one' },
+                orderBy: [{ field: 'rank', direction: 'asc' }],
+                limit: 2,
+                after: first.nextPosition,
+            });
+            expect(second.rows.map((row) => row.id)).toEqual(['c', 'd']);
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('uses the structural position when a prior row changes its sort value', async () => {
+        const db = await createDatabase();
+        try {
+            const first = await db.query<CursorRecord>('cursorRecord').findCursorPage({
+                where: { group: 'one' },
+                orderBy: [{ field: 'rank', direction: 'asc' }],
+                limit: 2,
+            });
+            await db.knex('cursor_record').where({ id: 'a' }).update({ rank_value: 99 });
+            const second = await db.query<CursorRecord>('cursorRecord').findCursorPage({
+                where: { group: 'one' },
+                orderBy: [{ field: 'rank', direction: 'asc' }],
+                limit: 2,
+                after: first.nextPosition,
+            });
+            expect(second.rows.map((row) => row.id)).toEqual(['c', 'a']);
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('walks a three-field order with the id tie-breaker', async () => {
+        const db = await createDatabase();
+        try {
+            const seen: string[] = [];
+            let after: Record<string, string | number | boolean | null> | undefined;
+            do {
+                const page = await db.query<CursorRecord>('cursorRecord').findCursorPage({
+                    orderBy: [
+                        { field: 'group', direction: 'asc' },
+                        { field: 'rank', direction: 'asc' },
+                        { field: 'title', direction: 'desc' },
+                    ],
+                    limit: 2,
+                    ...(after ? { after } : {}),
+                });
+                seen.push(...page.rows.map((row) => row.id));
+                after = page.nextPosition;
+            } while (after);
+            expect(seen).toHaveLength(6);
+            expect(new Set(seen)).toEqual(new Set(['a', 'b', 'c', 'd', 'e', 'z']));
+        } finally {
+            await db.close();
+        }
+    });
+
     test.each([
         ['missing order', { orderBy: [] }],
         [
             'duplicate order',
-            { orderBy: [{ field: 'rank', direction: 'asc' }, { field: 'rank', direction: 'desc' }] },
+            {
+                orderBy: [
+                    { field: 'rank', direction: 'asc' },
+                    { field: 'rank', direction: 'desc' },
+                ],
+            },
         ],
         ['unknown order', { orderBy: [{ field: 'missing', direction: 'asc' }] }],
         ['json order', { orderBy: [{ field: 'payload', direction: 'asc' }] }],
         [
             'incomplete after',
             { orderBy: [{ field: 'rank', direction: 'asc' }], after: { rank: 1 } },
+        ],
+        [
+            'extra after field',
+            {
+                orderBy: [{ field: 'rank', direction: 'asc' }],
+                after: { rank: 1, id: 'a', title: 'extra' },
+            },
+        ],
+        [
+            'coerced after type',
+            {
+                orderBy: [{ field: 'rank', direction: 'asc' }],
+                after: { rank: '1', id: 'a' },
+            },
+        ],
+        [
+            'non-finite after number',
+            {
+                orderBy: [{ field: 'rank', direction: 'asc' }],
+                after: { rank: Number.NaN, id: 'a' },
+            },
         ],
     ])('rejects %s', async (_label, params) => {
         const db = await createDatabase();

@@ -11,6 +11,7 @@ import type { ICursorPageResult } from '../types/i-result';
 import type { IModel } from '../types/model';
 import { transactionCtx } from '../transaction-ctx';
 import { toDiagnosticError } from '../diagnostics';
+import { validateStrictFieldValue } from './validate-write';
 
 const fail = (modelCode: string, reason: string): never => {
     throw new LliDbError(`Invalid cursor page for ${modelCode}: ${reason}`, 'LLI40021', {
@@ -19,17 +20,17 @@ const fail = (modelCode: string, reason: string): never => {
     });
 };
 
-const normalizeOrder = (
-    db: Database,
-    model: IModel,
-    orderBy: ICursorOrder[],
-): ICursorOrder[] => {
+const normalizeOrder = (db: Database, model: IModel, orderBy: ICursorOrder[]): ICursorOrder[] => {
     if (!Array.isArray(orderBy) || orderBy.length === 0) {
         fail(model.code, 'orderBy must contain at least one field');
     }
     const seen = new Set<string>();
     const result = orderBy.map((order) => {
-        if (!order || typeof order.field !== 'string' || !['asc', 'desc'].includes(order.direction)) {
+        if (
+            !order ||
+            typeof order.field !== 'string' ||
+            !['asc', 'desc'].includes(order.direction)
+        ) {
             fail(model.code, 'orderBy contains an invalid item');
         }
         if (seen.has(order.field)) fail(model.code, `duplicate order field ${order.field}`);
@@ -74,6 +75,13 @@ const validateAfter = (
         }
         const attribute = model.attributes[field];
         const fieldType = db.fieldTypeManager.get(attribute.type);
+        if (value !== null) {
+            try {
+                validateStrictFieldValue(db, model, field, attribute, value);
+            } catch {
+                fail(model.code, `after field ${field} does not match its field type`);
+            }
+        }
         result[field] = value === null ? null : fieldType.toDB(value, db, attribute);
     }
     return result;
@@ -92,7 +100,9 @@ const applyAfter = (
 ) => {
     if (value === null) return false;
     query.where((branch) => {
-        branch.where(column, direction === 'asc' ? '>' : '<', value as Knex.Value).orWhereNull(column);
+        branch
+            .where(column, direction === 'asc' ? '>' : '<', value as Knex.Value)
+            .orWhereNull(column);
     });
     return true;
 };
@@ -128,7 +138,11 @@ export const findCursorPage = async <T>(
     params: ICursorPageParams,
 ): Promise<ICursorPageResult<T>> => {
     const startedAt = Date.now();
-    db.diagnostics.emit({ type: 'cursor:page:start', modelCode: code, operation: 'findCursorPage' });
+    db.diagnostics.emit({
+        type: 'cursor:page:start',
+        modelCode: code,
+        operation: 'findCursorPage',
+    });
     try {
         const model = db.modelStore.get(code);
         const where: IWhere | undefined =
@@ -151,10 +165,12 @@ export const findCursorPage = async <T>(
             query.select({ [field]: toColumnName(model, field) });
         }
         if (where) {
-            applyWhere(
-                buildWhere(where, { db, alias: '', qb: helper, code }),
-                { db, query, qb: helper, code },
-            );
+            applyWhere(buildWhere(where, { db, alias: '', qb: helper, code }), {
+                db,
+                query,
+                qb: helper,
+                code,
+            });
         }
         if (after) applyKeysetWhere(query, model, orderBy, after);
         orderBy.forEach((order) => {
