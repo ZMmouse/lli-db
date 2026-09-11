@@ -16,6 +16,8 @@ export const createSysModelAttrMgr = (
             columnName: 'created_at',
             name: '创建时间',
             required: false,
+            readonly: true,
+            generated: 'create' as const,
         },
         createdBy: {
             code: 'createdBy',
@@ -35,6 +37,8 @@ export const createSysModelAttrMgr = (
             columnName: 'updated_at',
             name: '更新时间',
             required: false,
+            readonly: true,
+            generated: 'create-update' as const,
         },
         updatedBy: {
             code: 'updatedBy',
@@ -131,6 +135,20 @@ export const createSysModelAttrMgr = (
                 required: true,
                 unique: true,
                 primary: true,
+                readonly: true,
+                generated: 'create',
+            };
+        },
+        getRevisionAttribute() {
+            return {
+                code: 'revision',
+                type: SysExpansionFieldTypeEnum.REVISION,
+                columnName: 'revision',
+                name: 'Revision',
+                required: true,
+                default: 1,
+                readonly: true,
+                generated: 'create-update',
             };
         },
         getCreatedAttribute() {

@@ -26,6 +26,9 @@ export class ModelStore implements IModelStore {
 
     add(model: IModel) {
         model.attributes.id = this.db.sysModelAttrMgr.getIdAttribute();
+        if (model.useRevision) {
+            model.attributes.revision = this.db.sysModelAttrMgr.getRevisionAttribute();
+        }
         if (model.useCreatedFields) {
             Object.assign(model.attributes, this.db.sysModelAttrMgr.getCreatedAttribute());
         }

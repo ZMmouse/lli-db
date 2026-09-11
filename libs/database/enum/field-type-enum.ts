@@ -34,4 +34,5 @@ export enum SysExpansionFieldTypeEnum {
     ENCRYPT_TEXT = 'EncryptText',
     JSON_OBJECT = 'JsonObject',
     JSON_ARRAY = 'JsonArray',
+    REVISION = 'Revision',
 }

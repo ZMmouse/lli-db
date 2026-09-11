@@ -4,6 +4,7 @@ import type { IAttribute, IModel } from '../types/model';
 
 export interface IValidateModelsOptions {
     isFieldTypeRegistered?: (type: string) => boolean;
+    allowImplicitSystemAttributes?: boolean;
 }
 
 const implicitAttributeCodes = new Set(['id']);
@@ -22,6 +23,7 @@ const hasAttribute = (model: IModel, code: string) => {
     if (implicitAttributeCodes.has(code) || Object.prototype.hasOwnProperty.call(model.attributes, code)) {
         return true;
     }
+    if (model.useRevision && code === 'revision') return true;
     if (model.useCreatedFields && (code === 'createdAt' || code === 'createdBy')) return true;
     if (model.useUpdatedFields && (code === 'updatedAt' || code === 'updatedBy')) return true;
     if (
@@ -98,6 +100,9 @@ export const validateModels = (
         }
         requireNonEmptyString(model.code, `${path}.code`);
         requireNonEmptyString(model.tableName, `${path}.tableName`);
+        if (model.useRevision && model.useLogicDelete) {
+            fail(path, 'useRevision cannot be combined with useLogicDelete');
+        }
 
         const previousCodePath = modelCodePaths.get(model.code);
         if (previousCodePath) {
@@ -116,6 +121,13 @@ export const validateModels = (
 
         if (!model.attributes || typeof model.attributes !== 'object' || Array.isArray(model.attributes)) {
             fail(`${path}.attributes`, 'expected an attribute map');
+        }
+        if (
+            model.useRevision &&
+            Object.prototype.hasOwnProperty.call(model.attributes, 'revision') &&
+            !options.allowImplicitSystemAttributes
+        ) {
+            fail(`${path}.attributes.revision`, 'revision is an implicit system attribute');
         }
 
         const columnNamePaths = new Map<string, string>();

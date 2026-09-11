@@ -13,6 +13,7 @@ export interface ISysModelAttrMgr {
     getEnabledAttribute(): Record<string, IAttribute>;
     getTreeAttribute(): Record<string, IAttribute>;
     getIdAttribute(): IAttribute;
+    getRevisionAttribute(): IAttribute;
 }
 
 export interface IEntityStorage {

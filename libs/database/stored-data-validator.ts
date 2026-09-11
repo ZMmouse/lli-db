@@ -2,6 +2,7 @@ import type { Database } from './database';
 import type { Knex } from 'knex';
 import { DBFieldTypeEnum } from './enum/field-type-enum';
 import { LliDbError } from './error/lli-db-error';
+import { SysExpansionFieldTypeEnum } from './enum/field-type-enum';
 import { validateStrictFieldValue } from './entity-manager/validate-write';
 import type {
     IStoredDataValidationIssue,
@@ -70,8 +71,7 @@ export const validateStoredData = async (
                         }
                         validateStrictFieldValue(db, model, fieldCode, attribute, value);
                         if (
-                            model.useRevision &&
-                            fieldCode === 'revision' &&
+                            attribute.type === SysExpansionFieldTypeEnum.REVISION &&
                             (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1)
                         ) {
                             throw new LliDbError('Stored revision must be positive', 'LLI40020', {

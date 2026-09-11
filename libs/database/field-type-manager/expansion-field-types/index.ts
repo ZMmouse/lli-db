@@ -8,6 +8,7 @@ import uid from './uid';
 import jsonObject from './json-object';
 import jsonArray from './json-array';
 import encryptText from './encrypt-text';
+import revision from './revision';
 
 export const registerExpansionFieldTypes = (fieldTypeManager: FieldTypeManager) => {
     fieldTypeManager.extends(encryptText);
@@ -19,4 +20,5 @@ export const registerExpansionFieldTypes = (fieldTypeManager: FieldTypeManager) 
     fieldTypeManager.extends(uid);
     fieldTypeManager.extends(jsonObject);
     fieldTypeManager.extends(jsonArray);
+    fieldTypeManager.extends(revision);
 };
