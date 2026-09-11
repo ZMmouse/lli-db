@@ -2,8 +2,14 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import knex from 'knex';
+import * as fsPromises from 'node:fs/promises';
 import { Database, ModelTableMigrator, SysFieldTypeEnum } from '../libs';
 import type { IDiagnosticEvent, IModel } from '../libs';
+
+jest.mock('node:fs/promises', () => {
+    const actual = jest.requireActual<typeof fsPromises>('node:fs/promises');
+    return { ...actual, rename: jest.fn(actual.rename) };
+});
 
 const model: IModel = {
     code: 'backupRecord',
@@ -133,6 +139,33 @@ describe('SQLite backup and integrity operations', () => {
             });
             expect(existsSync(destination)).toBe(true);
         } finally {
+            await db.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    test('restores an existing destination when final replacement fails', async () => {
+        const { db, directory } = await createDatabase();
+        const destination = join(directory, 'backup.sqlite3');
+        writeFileSync(destination, 'existing backup');
+        const rename = jest.mocked(fsPromises.rename);
+        const actualRename = jest.requireActual<typeof fsPromises>('node:fs/promises').rename;
+        let calls = 0;
+        rename.mockImplementation(async (oldPath, newPath) => {
+            calls += 1;
+            if (calls === 2) throw new Error('simulated final rename failure');
+            return actualRename(oldPath, newPath);
+        });
+        try {
+            await expect(
+                db.backup({ destination, overwrite: true }),
+            ).rejects.toMatchObject({ code: 'LLI50020' });
+            expect(await fsPromises.readFile(destination, 'utf8')).toBe('existing backup');
+            expect(
+                readdirSync(directory).some((name) => name.includes('.previous-')),
+            ).toBe(false);
+        } finally {
+            rename.mockImplementation(actualRename);
             await db.close();
             rmSync(directory, { recursive: true, force: true });
         }

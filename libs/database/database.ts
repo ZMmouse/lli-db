@@ -315,6 +315,7 @@ export class Database implements IDatabase {
         this.assertSqlite('Backup');
         this._diagnostics.emit({ type: 'backup:start', operation: 'backup' });
         let temporary: string | undefined;
+        let previousDestination: string | undefined;
         let verification: IIntegrityCheckResult | undefined;
         let connection: any;
         try {
@@ -389,8 +390,30 @@ export class Database implements IDatabase {
                     throw new LliDbError('Backup integrity verification failed', 'LLI50020');
                 }
             }
-            if (options.overwrite) await rm(destination, { force: true });
-            await rename(temporary, destination);
+            if (options.overwrite) {
+                try {
+                    await access(destination);
+                    previousDestination = `${destination}.previous-${randomUUID()}`;
+                    await rename(destination, previousDestination);
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                    previousDestination = undefined;
+                }
+            }
+            try {
+                await rename(temporary, destination);
+                temporary = undefined;
+            } catch (error) {
+                if (previousDestination) {
+                    await rename(previousDestination, destination);
+                    previousDestination = undefined;
+                }
+                throw error;
+            }
+            if (previousDestination) {
+                await rm(previousDestination, { force: true });
+                previousDestination = undefined;
+            }
             const result = {
                 destination,
                 size: (await stat(destination)).size,
