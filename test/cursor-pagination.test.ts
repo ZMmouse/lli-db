@@ -228,6 +228,38 @@ describe('keyset cursor pagination', () => {
         }
     });
 
+    test('database close drains a cursor query that has already started', async () => {
+        const db = await createDatabase();
+        let entered!: () => void;
+        let release!: () => void;
+        const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+        const releasePromise = new Promise<void>((resolve) => (release = resolve));
+        const runOperation = db.runOperation.bind(db);
+        jest.spyOn(db, 'runOperation').mockImplementation((callback) =>
+            runOperation(async () => {
+                entered();
+                await releasePromise;
+                return callback();
+            }),
+        );
+
+        const cursorPromise = db.query<CursorRecord>('cursorRecord').findCursorPage({
+            orderBy: [{ field: 'rank', direction: 'asc' }],
+            limit: 2,
+        });
+        await enteredPromise;
+        let closed = false;
+        const closePromise = db.close().then(() => {
+            closed = true;
+        });
+        await Promise.resolve();
+        expect(closed).toBe(false);
+        release();
+        await expect(cursorPromise).resolves.toMatchObject({ rows: expect.any(Array) });
+        await closePromise;
+        expect(closed).toBe(true);
+    });
+
     test.each([
         ['missing order', { orderBy: [] }],
         [

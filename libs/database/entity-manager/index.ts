@@ -571,7 +571,7 @@ export class EntityManager {
         code: string,
         params: ICursorPageParams,
     ): Promise<ICursorPageResult<T>> {
-        return findCursorPage<T>(this.db, code, params);
+        return this.db.runOperation(() => findCursorPage<T>(this.db, code, params));
     }
 
     async createChildMany(
