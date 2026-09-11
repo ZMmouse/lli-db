@@ -232,30 +232,32 @@ export class Database implements IDatabase {
     getSqliteRuntimeState(): Promise<Readonly<ISqliteRuntimeState>> {
         return this.runOperation(async () => {
             this.assertSqlite('SQLite runtime state');
-            const readPragma = async (name: string) => {
-                const rows = (await this._knex.raw(`PRAGMA ${name}`)) as Array<
-                    Record<string, unknown>
-                >;
-                return Object.values(rows[0] ?? {})[0];
-            };
-            const [journalMode, foreignKeys, busyTimeoutMs, synchronous, queryOnly] =
-                await Promise.all([
-                    readPragma('journal_mode'),
-                    readPragma('foreign_keys'),
-                    readPragma('busy_timeout'),
-                    readPragma('synchronous'),
-                    readPragma('query_only'),
-                ]);
-            const synchronousNames = ['off', 'normal', 'full', 'extra'];
-            const synchronousNumber = Number(synchronous);
-            return Object.freeze({
-                journalMode: String(journalMode).toLowerCase(),
-                foreignKeys: Number(foreignKeys) === 1,
-                busyTimeoutMs: Number(busyTimeoutMs),
-                synchronous:
-                    synchronousNames[synchronousNumber] ?? String(synchronous).toLowerCase(),
-                queryOnly: Number(queryOnly) === 1,
-            });
+            const connection = await this._knex.client.acquireConnection();
+            try {
+                const readPragma = async (name: string) => {
+                    const rows = (await this._knex
+                        .raw(`PRAGMA ${name}`)
+                        .connection(connection)) as Array<Record<string, unknown>>;
+                    return Object.values(rows[0] ?? {})[0];
+                };
+                const journalMode = await readPragma('journal_mode');
+                const foreignKeys = await readPragma('foreign_keys');
+                const busyTimeoutMs = await readPragma('busy_timeout');
+                const synchronous = await readPragma('synchronous');
+                const queryOnly = await readPragma('query_only');
+                const synchronousNames = ['off', 'normal', 'full', 'extra'];
+                const synchronousNumber = Number(synchronous);
+                return Object.freeze({
+                    journalMode: String(journalMode).toLowerCase(),
+                    foreignKeys: Number(foreignKeys) === 1,
+                    busyTimeoutMs: Number(busyTimeoutMs),
+                    synchronous:
+                        synchronousNames[synchronousNumber] ?? String(synchronous).toLowerCase(),
+                    queryOnly: Number(queryOnly) === 1,
+                });
+            } finally {
+                await this._knex.client.releaseConnection(connection);
+            }
         });
     }
 

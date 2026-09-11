@@ -166,6 +166,8 @@ describe('SQLite read snapshots', () => {
     test('applies configured SQLite pragmas', async () => {
         const { db, directory } = await createDatabase();
         try {
+            const acquire = jest.spyOn(db.knex.client, 'acquireConnection');
+            const release = jest.spyOn(db.knex.client, 'releaseConnection');
             await expect(db.getSqliteRuntimeState()).resolves.toEqual({
                 journalMode: 'wal',
                 foreignKeys: true,
@@ -173,6 +175,10 @@ describe('SQLite read snapshots', () => {
                 synchronous: 'normal',
                 queryOnly: false,
             });
+            expect(acquire).toHaveBeenCalledTimes(1);
+            expect(release).toHaveBeenCalledTimes(1);
+            acquire.mockRestore();
+            release.mockRestore();
             const connections = await Promise.all([
                 db.knex.client.acquireConnection(),
                 db.knex.client.acquireConnection(),
