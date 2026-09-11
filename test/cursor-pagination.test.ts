@@ -39,6 +39,29 @@ const model: IModel = {
             columnName: 'payload_json',
             type: SysFieldTypeEnum.JSON,
         },
+        owner: {
+            code: 'owner',
+            name: 'owner',
+            columnName: 'owner_id',
+            type: SysFieldTypeEnum.SINGLE_QUOTE,
+            refCode: 'cursorOwner',
+            refFieldCode: 'id',
+            refDisplayCode: 'name',
+        },
+    },
+};
+
+const ownerModel: IModel = {
+    code: 'cursorOwner',
+    name: 'cursor owner',
+    tableName: 'cursor_owner',
+    attributes: {
+        name: {
+            code: 'name',
+            name: 'name',
+            columnName: 'name',
+            type: SysFieldTypeEnum.TEXT,
+        },
     },
 };
 
@@ -50,7 +73,7 @@ const createDatabase = async () => {
             useNullAsDefault: true,
             pool: { min: 1, max: 1 },
         },
-        models: [model],
+        models: [model, ownerModel],
         validation: { mode: 'strict' },
         query: { maxLimit: 100 },
     });
@@ -273,6 +296,7 @@ describe('keyset cursor pagination', () => {
         ],
         ['unknown order', { orderBy: [{ field: 'missing', direction: 'asc' }] }],
         ['json order', { orderBy: [{ field: 'payload', direction: 'asc' }] }],
+        ['relation order', { orderBy: [{ field: 'owner', direction: 'asc' }] }],
         [
             'incomplete after',
             { orderBy: [{ field: 'rank', direction: 'asc' }], after: { rank: 1 } },

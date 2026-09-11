@@ -11,6 +11,7 @@ import type { ICursorPageResult } from '../types/i-result';
 import type { IModel } from '../types/model';
 import { transactionCtx } from '../transaction-ctx';
 import { toDiagnosticError } from '../diagnostics';
+import { typeUtil } from '../utils';
 import { validateStrictFieldValue } from './validate-write';
 
 const fail = (modelCode: string, reason: string): never => {
@@ -37,7 +38,11 @@ const normalizeOrder = (db: Database, model: IModel, orderBy: ICursorOrder[]): I
         const attribute = model.attributes[order.field];
         if (!attribute) fail(model.code, `unknown order field ${order.field}`);
         const base = db.fieldTypeManager.getBaseFieldType(attribute.type);
-        if (base.dbFiledType === DBFieldTypeEnum.JSON || base.isColumn === false) {
+        if (
+            typeUtil.isQuote(attribute) ||
+            base.dbFiledType === DBFieldTypeEnum.JSON ||
+            base.isColumn === false
+        ) {
             fail(model.code, `field ${order.field} cannot be used for cursor ordering`);
         }
         seen.add(order.field);
