@@ -245,6 +245,40 @@ describe('SQLite read snapshots', () => {
         rmSync(directory, { recursive: true, force: true });
     });
 
+    test('snapshot expiry drains a read that has already started', async () => {
+        const events: IDiagnosticEvent[] = [];
+        const { db, directory } = await createDatabase(2, 100, events);
+        const snapshot = await db.openReadSnapshot({ maxLifetimeMs: 30 });
+        let entered!: () => void;
+        let release!: () => void;
+        const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+        const releasePromise = new Promise<void>((resolve) => (release = resolve));
+        db.middlewareManager.registerGlobalMiddleware('findMany', async (_ctx, next) => {
+            entered();
+            await releasePromise;
+            await next();
+        });
+
+        const queryPromise = snapshot.query('snapshotRecord').findMany();
+        await enteredPromise;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(() => snapshot.query('snapshotRecord')).toThrow(
+            expect.objectContaining({ code: 'LLI41001' }),
+        );
+        expect(db.getReadSnapshotStats().activeCount).toBe(1);
+        release();
+        await expect(queryPromise).resolves.toHaveLength(3);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(db.getReadSnapshotStats()).toMatchObject({
+            activeCount: 0,
+            autoClosedCount: 1,
+        });
+        expect(events).toContainEqual(expect.objectContaining({ type: 'snapshot:expire' }));
+
+        await db.close();
+        rmSync(directory, { recursive: true, force: true });
+    });
+
     test('database close drains an operation that already entered middleware', async () => {
         const { db, directory } = await createDatabase();
         let entered!: () => void;
