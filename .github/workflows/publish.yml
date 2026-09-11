@@ -49,12 +49,14 @@ jobs:
                   install: false
 
             - name: Install trusted-publishing compatible npm
-              run: npm install --global npm@11.19.1
+              run: |
+                  npm install --global npm@11.19.1
+                  echo "NPM_CLI_JS=$(npm root --global)/npm/bin/npm-cli.js" >> "$GITHUB_ENV"
 
             - name: Verify trusted-publishing runtime
               run: |
                   node --version
-                  npm --version
+                  test "$(node "$NPM_CLI_JS" --version)" = "11.19.1"
                   test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
                   test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
 
@@ -72,4 +74,4 @@ jobs:
                   if-no-files-found: error
 
             - name: Publish with npm trusted publishing
-              run: npm publish --access public
+              run: node "$NPM_CLI_JS" publish --access public

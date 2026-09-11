@@ -96,8 +96,10 @@ describe('release supply-chain controls', () => {
         expect(publishWorkflow).toContain('release_ref="${requested_ref%%+publish.*}"');
         expect(publishWorkflow).toContain('ref: ${{ steps.release-ref.outputs.ref }}');
         expect(publishWorkflow).toContain('npm install --global npm@11.19.1');
+        expect(publishWorkflow).toContain('NPM_CLI_JS=$(npm root --global)/npm/bin/npm-cli.js');
+        expect(publishWorkflow).toContain('node "$NPM_CLI_JS" --version');
         expect(publishWorkflow).toContain('npm run release:verify');
-        expect(publishWorkflow).toContain('npm publish --access public');
+        expect(publishWorkflow).toContain('node "$NPM_CLI_JS" publish --access public');
         expect(publishWorkflow).not.toMatch(/NODE_AUTH_TOKEN|NPM_TOKEN/);
         expect(`${ciWorkflow}\n${publishWorkflow}`).not.toMatch(
             /^\s*uses:\s*[^\s#]+@(?![a-f0-9]{40}(?:\s|$))/m,
