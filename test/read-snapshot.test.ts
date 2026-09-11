@@ -487,6 +487,35 @@ describe('SQLite read snapshots', () => {
         rmSync(directory, { recursive: true, force: true });
     });
 
+    test('database close waits for a manually controlled transaction to finish', async () => {
+        const { db, directory } = await createDatabase();
+        const transaction = await db.transaction();
+        let transactionFinished = false;
+        let closePromise: Promise<void> | undefined;
+
+        try {
+            await transaction.get()('snapshot_record').where({ id: 'missing' }).select();
+            let closed = false;
+            closePromise = db.close().then(() => {
+                closed = true;
+            });
+
+            await new Promise((resolve) => setImmediate(resolve));
+            expect(closed).toBe(false);
+
+            await transaction.rollback();
+            transactionFinished = true;
+            await closePromise;
+            expect(closed).toBe(true);
+        } finally {
+            if (!transactionFinished) {
+                await transaction.rollback().catch(() => undefined);
+            }
+            await (closePromise ?? db.close());
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
     test('releases the WAL reader so a truncate checkpoint can finish', async () => {
         const { db, directory } = await createDatabase();
         try {
