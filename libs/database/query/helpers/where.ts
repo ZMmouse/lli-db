@@ -40,6 +40,7 @@ const operators = [
     'notStartsWith',
     'endsWith',
     'notEndsWith',
+    'containsCaseSensitive',
 ] as const;
 
 const logicalKeys = ['and', 'or', 'not'] as const;
@@ -106,6 +107,7 @@ function validateOperatorValue(operator: IOperator, value: any): void {
         case 'notStartsWith':
         case 'endsWith':
         case 'notEndsWith':
+        case 'containsCaseSensitive':
             if (typeof value !== 'string') {
                 LliDbError.throw400(`操作符 ${operator} 的值类型错误: ${JSON.stringify(value)}`);
             }
@@ -551,6 +553,9 @@ const applyWhereItem = (item: IStateWhereCondition, ctx: IApplyWhereCtx) => {
         case 'notEndsWith':
             query.whereNot(columnNameAlias, 'like', `%${item.value}`);
             break;
+        case 'containsCaseSensitive':
+            query.whereRaw('instr(??, ?) > 0', [columnNameAlias, item.value]);
+            break;
         case 'eq':
             query.where(columnNameAlias, item.value);
             break;
@@ -626,6 +631,9 @@ const applyOrWhereItem = (item: IStateWhereCondition, ctx: IApplyWhereCtx) => {
             break;
         case 'notEndsWith':
             query.orWhereNot(columnNameAlias, 'like', `%${item.value}`);
+            break;
+        case 'containsCaseSensitive':
+            query.orWhereRaw('instr(??, ?) > 0', [columnNameAlias, item.value]);
             break;
         case 'eq':
             query.orWhere(columnNameAlias, item.value);
