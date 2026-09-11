@@ -214,9 +214,49 @@ export class Database implements IDatabase {
             });
             return snapshot;
         } catch (error) {
+            this._diagnostics.emit({
+                type: 'snapshot:error',
+                operation: 'openReadSnapshot',
+                error: toDiagnosticError(error),
+            });
             if (transaction && !transaction.isCompleted()) {
-                await transaction.raw('PRAGMA query_only = OFF').catch(() => undefined);
-                await transaction.rollback().catch(() => undefined);
+                const cleanupErrors: Error[] = [];
+                try {
+                    await transaction.raw('PRAGMA query_only = OFF');
+                } catch (cleanupError) {
+                    cleanupErrors.push(
+                        cleanupError instanceof Error
+                            ? cleanupError
+                            : new Error(String(cleanupError)),
+                    );
+                }
+                try {
+                    await transaction.rollback();
+                } catch (cleanupError) {
+                    cleanupErrors.push(
+                        cleanupError instanceof Error
+                            ? cleanupError
+                            : new Error(String(cleanupError)),
+                    );
+                }
+                if (cleanupErrors.length > 0) {
+                    const cleanupFailure = cleanupErrors[0] as Error & {
+                        cause?: unknown;
+                        cleanupErrors?: readonly Error[];
+                    };
+                    if (!cleanupFailure.cause) {
+                        Object.defineProperty(cleanupFailure, 'cause', { value: error });
+                    }
+                    Object.defineProperty(cleanupFailure, 'cleanupErrors', {
+                        value: Object.freeze([...cleanupErrors]),
+                    });
+                    this._diagnostics.emit({
+                        type: 'snapshot:error',
+                        operation: 'openReadSnapshotCleanup',
+                        error: toDiagnosticError(cleanupFailure),
+                    });
+                    throw cleanupFailure;
+                }
             }
             throw error;
         } finally {

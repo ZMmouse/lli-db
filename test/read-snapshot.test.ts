@@ -191,6 +191,65 @@ describe('SQLite read snapshots', () => {
         }
     });
 
+    test('reports snapshot opening cleanup failures without hiding the original error', async () => {
+        const events: IDiagnosticEvent[] = [];
+        const { db, directory } = await createDatabase(2, 5_000, events);
+        const openError = new Error('simulated snapshot open failure');
+        const queryOnlyError = new Error('simulated query-only cleanup failure');
+        const rollbackError = new Error('simulated rollback cleanup failure');
+        const raw = jest
+            .fn()
+            .mockResolvedValueOnce([{ journal_mode: 'wal' }])
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(openError)
+            .mockRejectedValueOnce(queryOnlyError);
+        const rollback = jest.fn().mockRejectedValueOnce(rollbackError);
+        const transaction = {
+            raw,
+            rollback,
+            isCompleted: () => false,
+        } as unknown as Knex.Transaction;
+        const originalTransaction = db.knex.transaction;
+        const transactionFactory = jest.fn().mockResolvedValueOnce(transaction);
+        Object.defineProperty(db.knex, 'transaction', {
+            value: transactionFactory,
+            configurable: true,
+        });
+
+        try {
+            const error = await db.openReadSnapshot().catch((caught) => caught);
+
+            expect(error).toBe(queryOnlyError);
+            expect(error).toMatchObject({
+                cause: openError,
+                cleanupErrors: [queryOnlyError, rollbackError],
+            });
+            expect(raw).toHaveBeenNthCalledWith(4, 'PRAGMA query_only = OFF');
+            expect(rollback).toHaveBeenCalledTimes(1);
+            expect(events).toContainEqual(
+                expect.objectContaining({
+                    type: 'snapshot:error',
+                    operation: 'openReadSnapshot',
+                    error: { name: 'Error' },
+                }),
+            );
+            expect(events).toContainEqual(
+                expect.objectContaining({
+                    type: 'snapshot:error',
+                    operation: 'openReadSnapshotCleanup',
+                    error: { name: 'Error' },
+                }),
+            );
+        } finally {
+            Object.defineProperty(db.knex, 'transaction', {
+                value: originalTransaction,
+                configurable: true,
+            });
+            await db.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
     test('applies configured SQLite pragmas', async () => {
         const { db, directory } = await createDatabase();
         try {
