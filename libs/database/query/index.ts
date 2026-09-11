@@ -379,8 +379,9 @@ export class QueryBuilder {
                 durationMs: Date.now() - startedAt,
                 error: toDiagnosticError(error),
             });
-            if (isDuplicateKeyError(this.db.knex, error)) {
-                const errorMessage = getDuplicateErrorMessage(this.db.knex, this.model, error);
+            const client = this.db.config.connection.client;
+            if (isDuplicateKeyError(client, error)) {
+                const errorMessage = getDuplicateErrorMessage(client, this.model, error);
                 throw LliDbError.throw40010(errorMessage.message, errorMessage);
             }
             throw error;

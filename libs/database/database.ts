@@ -472,22 +472,12 @@ export class Database implements IDatabase {
 
     get knex() {
         if (transactionCtx.isReadOnly()) {
-            const transaction = transactionCtx.get() as Knex.Transaction;
-            return new Proxy(transaction, {
-                get(target, property) {
-                    if (property === 'transaction' || property === 'destroy') {
-                        return async () => {
-                            throw new LliDbError(
-                                'Read snapshot transactions do not allow this operation',
-                                'LLI41002',
-                            );
-                        };
-                    }
-                    const value = Reflect.get(target, property, target);
-                    return typeof value === 'function' ? value.bind(target) : value;
-                },
-            }) as unknown as Knex;
+            throw new LliDbError(
+                'Read snapshot transactions do not expose the raw Knex connection',
+                'LLI41002',
+            );
         }
+        this.assertOpen();
         return this._knex;
     }
 
@@ -505,6 +495,10 @@ export class Database implements IDatabase {
 
     getConnection(tableName?: string) {
         this.assertOpen();
+        if (transactionCtx.isReadOnly()) {
+            const transaction = transactionCtx.get() as Knex.Transaction;
+            return tableName ? transaction(tableName) : transaction.queryBuilder();
+        }
         if (tableName) {
             return this.knex(tableName);
         }

@@ -1,18 +1,16 @@
 import { camelCase } from 'lodash';
-import { Knex } from 'knex';
 import { IModel } from '../../types/model';
 import { getDatabaseDriverCompatibility } from '../../driver-compatibility';
 
 // 判断是否为重复键错误
-export function isDuplicateKeyError(knex: Knex, error: any) {
+export function isDuplicateKeyError(client: unknown, error: any) {
     // 根据不同数据库驱动识别错误
     const DUPLICATE_ERROR_CODES = {
         postgresql: '23505', // PostgreSQL unique_violation
         sqlite3: 'SQLITE_CONSTRAINT', // SQLite
     };
 
-    const dbType = String(knex.client.config.client);
-    const driver = getDatabaseDriverCompatibility(dbType);
+    const driver = getDatabaseDriverCompatibility(client);
 
     if (driver.family === 'sqlite') {
         return (
@@ -27,8 +25,8 @@ export function isDuplicateKeyError(knex: Knex, error: any) {
     return false;
 }
 
-export function extractDuplicateField(knex: Knex, error: any) {
-    const driver = getDatabaseDriverCompatibility(knex.client.config.client);
+export function extractDuplicateField(client: unknown, error: any) {
+    const driver = getDatabaseDriverCompatibility(client);
     // PostgreSQL: 从 detail 中提取
     if (driver.family === 'postgresql') {
         const match = error.detail?.match(/Key \((.*?)\)=\(.*?\) already exists/);
@@ -44,8 +42,8 @@ export function extractDuplicateField(knex: Knex, error: any) {
     return '';
 }
 
-export function getDuplicateErrorMessage(knex: Knex, model: IModel, error: any) {
-    const columnName = extractDuplicateField(knex, error);
+export function getDuplicateErrorMessage(client: unknown, model: IModel, error: any) {
+    const columnName = extractDuplicateField(client, error);
 
     const code = camelCase(columnName);
 

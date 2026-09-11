@@ -105,7 +105,7 @@ describe('SQLite read snapshots', () => {
                 await next();
             });
             await expect(ddl.query('snapshotRecord').findOne()).rejects.toMatchObject({
-                code: 'SQLITE_READONLY',
+                code: 'LLI41002',
             });
             await ddl.close();
             await expect(db.knex.schema.hasTable('forbidden_in_snapshot')).resolves.toBe(false);
