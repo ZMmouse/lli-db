@@ -344,4 +344,28 @@ describe('revision optimistic concurrency', () => {
             await db.close();
         }
     });
+
+    test('rejects expectedRevision on operations without optimistic-lock semantics', async () => {
+        const db = await createDatabase();
+        try {
+            const created = await db.query<{ id: string }>('revisionRecord').create({
+                data: { title: 'created' },
+            });
+            await expect(
+                db.query('revisionRecord').updateMany({
+                    where: { id: created.id },
+                    expectedRevision: 1,
+                    data: { title: 'must not update' },
+                } as never),
+            ).rejects.toMatchObject({ code: 'LLI400' });
+            await expect(
+                db.query('revisionRecord').findMany({ expectedRevision: 1 } as never),
+            ).rejects.toMatchObject({ code: 'LLI400' });
+            await expect(
+                db.query('revisionRecord').findOne({ where: { id: created.id } }),
+            ).resolves.toMatchObject({ title: 'created', revision: 1 });
+        } finally {
+            await db.close();
+        }
+    });
 });

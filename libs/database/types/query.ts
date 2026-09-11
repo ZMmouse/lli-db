@@ -72,7 +72,7 @@ export interface IOptimisticMutationOptions {
     expectedRevision?: number;
 }
 
-export interface IParams extends IOptimisticMutationOptions {
+export interface IParams {
     where?: IWhere;
     /** @deprecated Use `where` instead. */
     filters?: IWhere;
@@ -87,6 +87,8 @@ export interface IParams extends IOptimisticMutationOptions {
     offset?: number;
     count?: boolean;
 }
+
+export interface IMutationParams extends IParams, IOptimisticMutationOptions {}
 
 export interface ICursorOrder {
     field: string;

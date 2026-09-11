@@ -34,6 +34,7 @@ export type {
     ICursorOrder,
     ICursorPageParams,
     IOptimisticMutationOptions,
+    IMutationParams,
 } from './database/types/query';
 export type { ICursorPageResult, IMutationResult } from './database/types/i-result';
 export { ReadSnapshot, ReadSnapshotRepository } from './database/read-snapshot';

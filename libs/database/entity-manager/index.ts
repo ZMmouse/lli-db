@@ -2,7 +2,7 @@ import { isEmpty, isPlainObject, pick } from 'lodash';
 import { Knex } from 'knex';
 import type { Database } from '../database';
 import { QueryBuilder } from '../query';
-import type { IParams, ISelect, IUpdateManyParams } from '../types/query';
+import type { IMutationParams, IParams, ISelect, IUpdateManyParams } from '../types/query';
 import { hasWhereConditions, normalizeQueryParams } from '../query/helpers/normalize-params';
 import { processData } from './process-data';
 import { EntityRepository } from './entity-repository';
@@ -21,7 +21,7 @@ import type { IModel } from '../types/model';
 const hasRevisionField = (model: IModel) =>
     model.attributes.revision?.type === SysExpansionFieldTypeEnum.REVISION;
 
-const getExpectedRevisionId = (code: string, model: IModel, params: IParams) => {
+const getExpectedRevisionId = (code: string, model: IModel, params: IMutationParams) => {
     if (params.expectedRevision === undefined) return undefined;
     if (!hasRevisionField(model)) {
         throw new LliDbError(`Model ${code} does not enable revision`, 'LLI400');
@@ -235,7 +235,7 @@ export class EntityManager {
         });
     }
 
-    async update<T = IAnyObject>(code: string, params: IParams): Promise<T | null> {
+    async update<T = IAnyObject>(code: string, params: IMutationParams): Promise<T | null> {
         return this.db.middlewareManager.run('update', code, params, async (ctx) => {
             const model = this.db.modelStore.get(code);
 
@@ -438,7 +438,7 @@ export class EntityManager {
         return this.deletePlanner.checkUseLogicDelete(code);
     }
 
-    async delete(code: string, params: IParams): Promise<number> {
+    async delete(code: string, params: IMutationParams): Promise<number> {
         return this.db.middlewareManager.run('delete', code, params, async (ctx) => {
             const { where, select, populate } = ctx.params;
             const model = this.db.modelStore.get(code);

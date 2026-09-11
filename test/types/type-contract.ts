@@ -5,6 +5,7 @@ import type {
     ITransactionContext,
     IOptimisticMutationOptions,
     IMutationResult,
+    IMutationParams,
 } from '../../libs';
 import { Database, ModelTableMigrator } from '../../libs';
 
@@ -45,6 +46,12 @@ void minletConfig;
 
 async function verifyPublicTypes() {
     const optimistic: IOptimisticMutationOptions = { expectedRevision: 2 };
+    const mutationParams: IMutationParams = {
+        where: { id: 'user-1' },
+        expectedRevision: 2,
+        data: { name: 'updated' },
+    };
+    void mutationParams;
     const unsubscribe = db.onDiagnostic((event: Readonly<IDiagnosticEvent>) => {
         event.type.toUpperCase();
         // @ts-expect-error diagnostic events intentionally do not expose SQL.
@@ -78,6 +85,14 @@ async function verifyPublicTypes() {
         allowAll: true,
         data: { name: 'updated' },
     });
+    await db.query<User>('user').updateMany({
+        allowAll: true,
+        // @ts-expect-error optimistic revisions are supported only by single-record mutations.
+        expectedRevision: 1,
+        data: { name: 'invalid' },
+    });
+    // @ts-expect-error read operations do not accept optimistic mutation options.
+    await db.query<User>('user').findMany({ expectedRevision: 1 });
 
     const cursorPage = await db.query<User>('user').findCursorPage({
         orderBy: [{ field: 'name', direction: 'asc' }],

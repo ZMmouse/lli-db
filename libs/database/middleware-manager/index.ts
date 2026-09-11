@@ -9,6 +9,7 @@ import { normalizeQueryParams } from '../query/helpers/normalize-params';
 import { cloneDeep } from 'lodash';
 import { toLifecycleAction } from '../lifecycles';
 import { validateWriteParams } from '../entity-manager/validate-write';
+import { LliDbError } from '../error/lli-db-error';
 
 export class MiddlewareManager {
     private globalMiddlewares: Map<IAction, IMiddleware<IMiddlewareCtx>[]> = new Map();
@@ -55,6 +56,17 @@ export class MiddlewareManager {
     ) {
         const model = this.db.modelStore.get(modelCode);
         params = cloneDeep(normalizeQueryParams(params));
+        if (
+            params.expectedRevision !== undefined &&
+            action !== 'update' &&
+            action !== 'delete'
+        ) {
+            throw new LliDbError(
+                `expectedRevision is not supported for ${action}`,
+                'LLI400',
+                { modelCode, operation: action },
+            );
+        }
         const ctx: IMiddlewareCtx = {
             db: this.db,
             model,
