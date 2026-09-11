@@ -216,7 +216,7 @@ console.log(page.rows, page.total);
 
 `page` 必须从 1 开始并与 `pageSize` 同时提供，`limit` 必须大于 0，`offset` 必须大于等于 0；两套分页方式不能混用。默认 `pageSize` 和 `limit` 最大为 1000，`offset` 及分页计算出的偏移最大为 100000，可通过 `Database` 的 `query` 配置调整。populate 默认每 500 个关联 ID 顺序执行一批查询，避免超过数据库绑定参数上限。
 
-当前版本暂不提供通用 cursor 分页。模型尚未声明可用于游标的稳定唯一排序组合，直接把任意 `orderBy` 编码成 cursor 会产生遗漏或重复记录；在相关元数据契约确定前继续使用受上限保护的 offset/page 分页。
+当前版本提供 `findCursorPage()` keyset 分页，并自动追加 `id asc` 作为最终唯一键；`after` 必须精确包含最终排序字段且值类型必须匹配模型。普通 cursor 不提供跨请求快照一致性，排序字段在翻页期间被修改时记录可能重新出现；需要强一致集合时请配合 `ReadSnapshot`。原有 offset/page 分页继续保留。
 
 ### 更新
 
@@ -641,11 +641,15 @@ await db.query('article').update({
 });
 ```
 
-强一致翻页可在文件型 `better-sqlite3` 数据库上显式打开只读快照，并在 `finally` 中关闭。上线或迁移前可调用 `backup()`、`integrityCheck()` 和 `validateStoredData()`；`syncAll({ validateStoredData: true })` 会在迁移事务提交前执行存量校验。完整契约、限制和恢复顺序见 [Minlet 数据层与 SQLite 运维指南](docs/Minlet数据层与SQLite运维指南.md)。
+强一致翻页可在 WAL 模式的文件型 `better-sqlite3` 数据库上显式打开只读快照，并在 `finally` 中关闭。快照只公开查询方法，底层事务同时启用 SQLite `query_only`。`db.getReadSnapshotStats()` 可查询快照指标，`db.getSqliteRuntimeState()` 可查询实际 pragma 状态。`db.close()` 会拒绝新操作，等待已经进入的 ORM 查询和事务收尾，再关闭快照与连接池。
+
+上线或迁移前可调用 `backup()`、`integrityCheck()` 和 `validateStoredData()`；`syncAll({ validateStoredData: true })` 会在迁移事务提交前执行存量校验。完整契约、限制和恢复顺序见 [Minlet 数据层与 SQLite 运维指南](docs/Minlet数据层与SQLite运维指南.md)。
 
 ## 开发
 
 发布前执行 `npm run release:verify`。该门禁会验证测试、构建、tarball、干净临时项目安装、凭据/PII 扫描、CycloneDX SBOM、版本 tag、CHANGELOG、干净工作树和 npm provenance 环境。`npm run package:smoke` 会从当前源码重新构建 tarball，在隔离目录中仅安装生产依赖与 `better-sqlite3`，并执行包入口导入、内存建表、CRUD 和事务回滚。`npm run security:scan` 检查当前工作树和包内容且不会回显命中原文；完整历史使用独立的 `security:scan:history`。当前 Gitee 源地址尚未具备 npm provenance 支持的发布环境，因此正式发布仍处于阻塞状态；不要绕过门禁手工发布。完整说明见 [依赖与发布策略](docs/依赖与发布策略.md)和[安全扫描报告](docs/安全扫描报告.md)。
+
+目标 Electron 完成 `better-sqlite3` ABI 重建后，可运行 `npm run electron:smoke -- <electron-executable>`；也可设置 `LLI_DB_ELECTRON_BINARY`。PostgreSQL 的可选集成契约通过 `LLI_DB_TEST_PG_URL` 启用，未配置时保持跳过且兼容级别仍为 preview。
 
 ```bash
 # 安装依赖

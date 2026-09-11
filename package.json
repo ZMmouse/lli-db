@@ -32,6 +32,7 @@
         "prepack": "npm run clean && npm run verify && npm run build",
         "pack:check": "npm pack --dry-run --cache artifacts/npm-smoke-cache",
         "package:smoke": "npm run clean && npm run build && tsx scripts/package-smoke.ts",
+        "electron:smoke": "npm run build && tsx scripts/electron-smoke.ts",
         "security:scan": "tsx scripts/security-scan.ts",
         "security:scan:history": "tsx scripts/security-scan.ts --history",
         "sbom": "tsx scripts/generate-sbom.ts",

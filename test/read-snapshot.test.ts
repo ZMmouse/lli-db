@@ -83,16 +83,70 @@ describe('SQLite read snapshots', () => {
         }
     });
 
+    test('exposes only read methods and rejects writes or nested transactions', async () => {
+        const { db, directory } = await createDatabase();
+        try {
+            const snapshot = await db.openReadSnapshot();
+            expect(snapshot).not.toHaveProperty('database');
+            expect(snapshot).not.toHaveProperty('run');
+
+            db.middlewareManager.registerGlobalMiddleware('findMany', async (ctx, next) => {
+                await ctx.db.createQueryBuilder('snapshotRecord').insert({ rank: 99 }).execute();
+                await next();
+            });
+            await expect(snapshot.query('snapshotRecord').findMany()).rejects.toMatchObject({
+                code: 'LLI41002',
+            });
+            await snapshot.close();
+
+            const ddl = await db.openReadSnapshot();
+            db.middlewareManager.registerGlobalMiddleware('findOne', async (ctx, next) => {
+                await ctx.db.knex.raw('CREATE TABLE forbidden_in_snapshot (id TEXT)');
+                await next();
+            });
+            await expect(ddl.query('snapshotRecord').findOne()).rejects.toMatchObject({
+                code: 'SQLITE_READONLY',
+            });
+            await ddl.close();
+            await expect(db.knex.schema.hasTable('forbidden_in_snapshot')).resolves.toBe(false);
+
+            const nested = await db.openReadSnapshot();
+            db.middlewareManager.registerGlobalMiddleware('count', async (ctx, next) => {
+                await new ModelTableMigrator(ctx.db).syncAll();
+                await next();
+            });
+            await expect(nested.query('snapshotRecord').count()).rejects.toMatchObject({
+                code: 'LLI41002',
+            });
+            await nested.close();
+        } finally {
+            await db.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
     test('enforces active snapshot and lifetime limits', async () => {
         const events: IDiagnosticEvent[] = [];
         const { db, directory } = await createDatabase(1, 50, events);
         try {
             const snapshot = await db.openReadSnapshot({ maxLifetimeMs: 30 });
+            const now = jest.spyOn(Date, 'now').mockReturnValue(snapshot.openedAt + 25);
+            expect(db.getReadSnapshotStats()).toMatchObject({
+                activeCount: 1,
+                oldestAgeMs: 25,
+                autoClosedCount: 0,
+            });
+            now.mockRestore();
             await expect(db.openReadSnapshot()).rejects.toMatchObject({ code: 'LLI42901' });
             await new Promise((resolve) => setTimeout(resolve, 60));
             expect(() => snapshot.query('snapshotRecord')).toThrow(
                 expect.objectContaining({ code: 'LLI41001' }),
             );
+            expect(db.getReadSnapshotStats()).toEqual({
+                activeCount: 0,
+                oldestAgeMs: 0,
+                autoClosedCount: 1,
+            });
             const replacement = await db.openReadSnapshot();
             await replacement.close();
             expect(events.map((event) => event.type)).toEqual(
@@ -112,6 +166,13 @@ describe('SQLite read snapshots', () => {
     test('applies configured SQLite pragmas', async () => {
         const { db, directory } = await createDatabase();
         try {
+            await expect(db.getSqliteRuntimeState()).resolves.toEqual({
+                journalMode: 'wal',
+                foreignKeys: true,
+                busyTimeoutMs: 1000,
+                synchronous: 'normal',
+                queryOnly: false,
+            });
             const connections = await Promise.all([
                 db.knex.client.acquireConnection(),
                 db.knex.client.acquireConnection(),
@@ -126,9 +187,7 @@ describe('SQLite read snapshots', () => {
                 }
             } finally {
                 await Promise.all(
-                    connections.map((connection) =>
-                        db.knex.client.releaseConnection(connection),
-                    ),
+                    connections.map((connection) => db.knex.client.releaseConnection(connection)),
                 );
             }
         } finally {
@@ -144,6 +203,60 @@ describe('SQLite read snapshots', () => {
         expect(() => snapshot.query('snapshotRecord')).toThrow(
             expect.objectContaining({ code: 'LLI41001' }),
         );
+        rmSync(directory, { recursive: true, force: true });
+    });
+
+    test('database close drains an operation that already entered middleware', async () => {
+        const { db, directory } = await createDatabase();
+        let entered!: () => void;
+        let release!: () => void;
+        const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+        const releasePromise = new Promise<void>((resolve) => (release = resolve));
+        db.middlewareManager.registerGlobalMiddleware('findMany', async (_ctx, next) => {
+            entered();
+            await releasePromise;
+            await next();
+        });
+
+        const queryPromise = db.query('snapshotRecord').findMany();
+        await enteredPromise;
+        let closed = false;
+        const closePromise = db.close().then(() => {
+            closed = true;
+        });
+        await Promise.resolve();
+        expect(closed).toBe(false);
+        release();
+        await expect(queryPromise).resolves.toHaveLength(3);
+        await closePromise;
+        expect(() => db.query('snapshotRecord')).toThrow(
+            expect.objectContaining({ code: 'LLI41000' }),
+        );
+        rmSync(directory, { recursive: true, force: true });
+    });
+
+    test('database close also drains a directly opened callback transaction', async () => {
+        const { db, directory } = await createDatabase();
+        let entered!: () => void;
+        let release!: () => void;
+        const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+        const releasePromise = new Promise<void>((resolve) => (release = resolve));
+        const transactionPromise = db.transaction(async () => {
+            entered();
+            await releasePromise;
+            await db.knex('snapshot_record').where({ id: 'missing' }).select();
+        });
+        await enteredPromise;
+        let closed = false;
+        const closePromise = db.close().then(() => {
+            closed = true;
+        });
+        await Promise.resolve();
+        expect(closed).toBe(false);
+        release();
+        await transactionPromise;
+        await closePromise;
+        expect(closed).toBe(true);
         rmSync(directory, { recursive: true, force: true });
     });
 

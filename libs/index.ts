@@ -7,7 +7,9 @@ import type {
     IValidationMode,
     IReadSnapshotConfig,
     IReadSnapshotOptions,
+    IReadSnapshotStats,
     ISqliteConfig,
+    ISqliteRuntimeState,
     IDatabaseBackupOptions,
     IDatabaseBackupResult,
     IIntegrityCheckOptions,
@@ -31,6 +33,7 @@ export type {
     IWhere,
     ICursorOrder,
     ICursorPageParams,
+    IOptimisticMutationOptions,
 } from './database/types/query';
 export type { ICursorPageResult } from './database/types/i-result';
 export { ReadSnapshot, ReadSnapshotRepository } from './database/read-snapshot';
@@ -71,10 +74,7 @@ export type {
 
 export * from './database/error/lli-db-error';
 
-export {
-    SysFieldTypeEnum,
-    SysExpansionFieldTypeEnum,
-} from './database/enum/field-type-enum';
+export { SysFieldTypeEnum, SysExpansionFieldTypeEnum } from './database/enum/field-type-enum';
 
 export type { IField, IExpansionField } from './database/types/i-field';
 export type {
@@ -103,7 +103,9 @@ export type {
     IValidationMode,
     IReadSnapshotConfig,
     IReadSnapshotOptions,
+    IReadSnapshotStats,
     ISqliteConfig,
+    ISqliteRuntimeState,
     IDatabaseBackupOptions,
     IDatabaseBackupResult,
     IIntegrityCheckOptions,

@@ -21,21 +21,20 @@ import type { IDiagnosticListener } from './types/diagnostics';
 import { getDatabaseDriverCompatibility, validateDatabaseClient } from './driver-compatibility';
 import { ReadSnapshot } from './read-snapshot';
 import type { IReadSnapshotOptions } from './types/database';
+import type { IReadSnapshotStats, ISqliteRuntimeState } from './types/database';
 import type {
     IDatabaseBackupOptions,
     IDatabaseBackupResult,
     IIntegrityCheckOptions,
     IIntegrityCheckResult,
 } from './types/database';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import knex from 'knex';
 import { validateStoredData } from './stored-data-validator';
-import type {
-    IStoredDataValidationOptions,
-    IStoredDataValidationReport,
-} from './types/database';
+import type { IStoredDataValidationOptions, IStoredDataValidationReport } from './types/database';
 
 export class Database implements IDatabase {
     private _config: IDatabaseConfig;
@@ -48,6 +47,10 @@ export class Database implements IDatabase {
     private readonly _middlewareManager: MiddlewareManager;
     private readonly _diagnostics: Diagnostics;
     private readonly readSnapshots = new Set<ReadSnapshot>();
+    private autoClosedSnapshotCount = 0;
+    private readonly operationContext = new AsyncLocalStorage<boolean>();
+    private activeOperations = 0;
+    private drainWaiters: Array<() => void> = [];
 
     private readonly _lifecycleProvider: ILifecycleProvider;
     constructor(config: IDatabaseConfig) {
@@ -58,16 +61,12 @@ export class Database implements IDatabase {
         this._config = Object.freeze({
             ...config,
             query: config.query ? Object.freeze({ ...config.query }) : undefined,
-            validation: config.validation
-                ? Object.freeze({ ...config.validation })
-                : undefined,
+            validation: config.validation ? Object.freeze({ ...config.validation }) : undefined,
             readSnapshots: config.readSnapshots
                 ? Object.freeze({ ...config.readSnapshots })
                 : undefined,
             sqlite: config.sqlite ? Object.freeze({ ...config.sqlite }) : undefined,
-            diagnostics: config.diagnostics
-                ? Object.freeze({ ...config.diagnostics })
-                : undefined,
+            diagnostics: config.diagnostics ? Object.freeze({ ...config.diagnostics }) : undefined,
         });
         this._diagnostics = new Diagnostics(config.diagnostics);
         this._knex = createKnex(config.connection, config.sqlite);
@@ -88,10 +87,7 @@ export class Database implements IDatabase {
         const snapshotConfig = config.readSnapshots;
         if (!snapshotConfig) return;
         if (String(config.connection.client).toLowerCase() !== 'better-sqlite3') {
-            throw new LliDbError(
-                'readSnapshots require the better-sqlite3 client',
-                'LLI400',
-            );
+            throw new LliDbError('readSnapshots require the better-sqlite3 client', 'LLI400');
         }
         for (const [name, value] of Object.entries(snapshotConfig)) {
             if (!Number.isSafeInteger(value) || value < 1) {
@@ -104,15 +100,44 @@ export class Database implements IDatabase {
     private closed = false;
 
     assertOpen() {
-        if (this.closed) {
+        if (this.closed && !this.operationContext.getStore()) {
             throw new LliDbError('Database is closed', 'LLI41000');
         }
     }
 
+    runOperation<TResult>(callback: () => Promise<TResult>): Promise<TResult> {
+        if (this.operationContext.getStore()) return callback();
+        this.assertOpen();
+        this.activeOperations += 1;
+        return this.operationContext.run(true, async () => {
+            try {
+                return await callback();
+            } finally {
+                this.activeOperations -= 1;
+                if (this.activeOperations === 0) {
+                    const waiters = this.drainWaiters;
+                    this.drainWaiters = [];
+                    waiters.forEach((resolveWaiter) => resolveWaiter());
+                }
+            }
+        });
+    }
+
+    private waitForOperations() {
+        if (this.activeOperations === 0) return Promise.resolve();
+        return new Promise<void>((resolveWaiter) => this.drainWaiters.push(resolveWaiter));
+    }
+
     close() {
+        if (this.operationContext.getStore() && !this.closePromise) {
+            return Promise.reject(
+                new LliDbError('Database cannot be closed from an active operation', 'LLI41003'),
+            );
+        }
         if (!this.closePromise) {
             this.closed = true;
             this.closePromise = (async () => {
+                await this.waitForOperations();
                 const results = await Promise.allSettled(
                     Array.from(this.readSnapshots, (snapshot) => snapshot.close()),
                 );
@@ -126,8 +151,11 @@ export class Database implements IDatabase {
         return this.closePromise;
     }
 
-    async openReadSnapshot(options: IReadSnapshotOptions = {}) {
-        this.assertOpen();
+    openReadSnapshot(options: IReadSnapshotOptions = {}) {
+        return this.runOperation(() => this.openReadSnapshotInternal(options));
+    }
+
+    private async openReadSnapshotInternal(options: IReadSnapshotOptions) {
         if (String(this._config.connection.client).toLowerCase() !== 'better-sqlite3') {
             throw new LliDbError('Read snapshots require the better-sqlite3 client', 'LLI400');
         }
@@ -162,17 +190,26 @@ export class Database implements IDatabase {
         }
         const transaction = await this._knex.transaction();
         try {
+            const journalRows = (await transaction.raw('PRAGMA journal_mode')) as Array<
+                Record<string, unknown>
+            >;
+            const journalMode = String(journalRows[0]?.journal_mode ?? '').toLowerCase();
+            if (journalMode !== 'wal') {
+                throw new LliDbError('Read snapshots require SQLite WAL mode', 'LLI400');
+            }
+            await transaction.raw('PRAGMA query_only = ON');
             await transaction.raw('SELECT name FROM sqlite_master LIMIT 1');
         } catch (error) {
-            if (!transaction.isCompleted()) await transaction.rollback().catch(() => undefined);
+            if (!transaction.isCompleted()) {
+                await transaction.raw('PRAGMA query_only = OFF').catch(() => undefined);
+                await transaction.rollback().catch(() => undefined);
+            }
             throw error;
         }
-        const snapshot = new ReadSnapshot(
-            this,
-            transaction,
-            requestedLifetime,
-            () => this.readSnapshots.delete(snapshot),
-        );
+        const snapshot = new ReadSnapshot(this, transaction, requestedLifetime, (reason) => {
+            this.readSnapshots.delete(snapshot);
+            if (reason === 'expire') this.autoClosedSnapshotCount += 1;
+        });
         this.readSnapshots.add(snapshot);
         this._diagnostics.emit({
             type: 'snapshot:open',
@@ -182,22 +219,72 @@ export class Database implements IDatabase {
         return snapshot;
     }
 
+    getReadSnapshotStats(): Readonly<IReadSnapshotStats> {
+        const now = Date.now();
+        const openedAt = Array.from(this.readSnapshots, (snapshot) => snapshot.openedAt);
+        return Object.freeze({
+            activeCount: this.readSnapshots.size,
+            oldestAgeMs: openedAt.length === 0 ? 0 : Math.max(0, now - Math.min(...openedAt)),
+            autoClosedCount: this.autoClosedSnapshotCount,
+        });
+    }
+
+    getSqliteRuntimeState(): Promise<Readonly<ISqliteRuntimeState>> {
+        return this.runOperation(async () => {
+            this.assertSqlite('SQLite runtime state');
+            const readPragma = async (name: string) => {
+                const rows = (await this._knex.raw(`PRAGMA ${name}`)) as Array<
+                    Record<string, unknown>
+                >;
+                return Object.values(rows[0] ?? {})[0];
+            };
+            const [journalMode, foreignKeys, busyTimeoutMs, synchronous, queryOnly] =
+                await Promise.all([
+                    readPragma('journal_mode'),
+                    readPragma('foreign_keys'),
+                    readPragma('busy_timeout'),
+                    readPragma('synchronous'),
+                    readPragma('query_only'),
+                ]);
+            const synchronousNames = ['off', 'normal', 'full', 'extra'];
+            const synchronousNumber = Number(synchronous);
+            return Object.freeze({
+                journalMode: String(journalMode).toLowerCase(),
+                foreignKeys: Number(foreignKeys) === 1,
+                busyTimeoutMs: Number(busyTimeoutMs),
+                synchronous:
+                    synchronousNames[synchronousNumber] ?? String(synchronous).toLowerCase(),
+                queryOnly: Number(queryOnly) === 1,
+            });
+        });
+    }
+
     private assertSqlite(operation: string) {
         if (getDatabaseDriverCompatibility(this._config.connection.client).family !== 'sqlite') {
             throw new LliDbError(`${operation} is currently supported only for SQLite`, 'LLI400');
         }
     }
 
-    async integrityCheck(options: IIntegrityCheckOptions = {}): Promise<IIntegrityCheckResult> {
+    integrityCheck(options: IIntegrityCheckOptions = {}): Promise<IIntegrityCheckResult> {
+        return this.runOperation(() => this.integrityCheckInternal(options));
+    }
+
+    private async integrityCheckInternal(
+        options: IIntegrityCheckOptions,
+    ): Promise<IIntegrityCheckResult> {
         const startedAt = Date.now();
-        this.assertOpen();
         this.assertSqlite('Integrity check');
         this._diagnostics.emit({ type: 'integrity-check:start', operation: 'integrityCheck' });
         try {
             const pragma = options.quick ? 'quick_check' : 'integrity_check';
-            const rows = (await this._knex.raw(`PRAGMA ${pragma}`)) as Array<Record<string, unknown>>;
+            const rows = (await this._knex.raw(`PRAGMA ${pragma}`)) as Array<
+                Record<string, unknown>
+            >;
             const messages = rows.map((row) => String(Object.values(row)[0]));
-            const result = { ok: messages.length === 1 && messages[0].toLowerCase() === 'ok', messages };
+            const result = {
+                ok: messages.length === 1 && messages[0].toLowerCase() === 'ok',
+                messages,
+            };
             this._diagnostics.emit({
                 type: result.ok ? 'integrity-check:success' : 'integrity-check:error',
                 operation: 'integrityCheck',
@@ -211,20 +298,29 @@ export class Database implements IDatabase {
                 durationMs: Date.now() - startedAt,
                 error: toDiagnosticError(error),
             });
-            throw error;
+            throw error instanceof LliDbError
+                ? error
+                : new LliDbError('SQLite integrity check failed', 'LLI50020');
         }
     }
 
-    async backup(options: IDatabaseBackupOptions): Promise<IDatabaseBackupResult> {
+    backup(options: IDatabaseBackupOptions): Promise<IDatabaseBackupResult> {
+        return this.runOperation(() => this.backupInternal(options));
+    }
+
+    private async backupInternal(options: IDatabaseBackupOptions): Promise<IDatabaseBackupResult> {
         const startedAt = Date.now();
-        this.assertOpen();
         this.assertSqlite('Backup');
         this._diagnostics.emit({ type: 'backup:start', operation: 'backup' });
         let temporary: string | undefined;
         let verification: IIntegrityCheckResult | undefined;
         let connection: any;
         try {
-            if (!options || typeof options.destination !== 'string' || !options.destination.trim()) {
+            if (
+                !options ||
+                typeof options.destination !== 'string' ||
+                !options.destination.trim()
+            ) {
                 throw new LliDbError('backup destination must be a non-empty path', 'LLI400');
             }
             const destination = resolve(options.destination);
@@ -242,7 +338,10 @@ export class Database implements IDatabase {
             temporary = `${destination}.tmp-${randomUUID()}`;
             connection = await this._knex.client.acquireConnection();
             if (typeof connection.backup !== 'function') {
-                throw new LliDbError('The active SQLite driver does not provide online backup', 'LLI400');
+                throw new LliDbError(
+                    'The active SQLite driver does not provide online backup',
+                    'LLI400',
+                );
             }
             await connection.backup(temporary);
             if (options.verify) {
@@ -299,10 +398,15 @@ export class Database implements IDatabase {
         }
     }
 
-    async validateStoredData(
+    validateStoredData(
         options: IStoredDataValidationOptions = {},
     ): Promise<IStoredDataValidationReport> {
-        this.assertOpen();
+        return this.runOperation(() => this.validateStoredDataInternal(options));
+    }
+
+    private async validateStoredDataInternal(
+        options: IStoredDataValidationOptions,
+    ): Promise<IStoredDataValidationReport> {
         const startedAt = Date.now();
         this._diagnostics.emit({
             type: 'stored-data-validation:start',
@@ -311,9 +415,7 @@ export class Database implements IDatabase {
         try {
             const report = await validateStoredData(this, options);
             this._diagnostics.emit({
-                type: report.ok
-                    ? 'stored-data-validation:success'
-                    : 'stored-data-validation:error',
+                type: report.ok ? 'stored-data-validation:success' : 'stored-data-validation:error',
                 operation: 'validateStoredData',
                 durationMs: Date.now() - startedAt,
                 checkedRows: report.checkedRows,
@@ -369,6 +471,23 @@ export class Database implements IDatabase {
     }
 
     get knex() {
+        if (transactionCtx.isReadOnly()) {
+            const transaction = transactionCtx.get() as Knex.Transaction;
+            return new Proxy(transaction, {
+                get(target, property) {
+                    if (property === 'transaction' || property === 'destroy') {
+                        return async () => {
+                            throw new LliDbError(
+                                'Read snapshot transactions do not allow this operation',
+                                'LLI41002',
+                            );
+                        };
+                    }
+                    const value = Reflect.get(target, property, target);
+                    return typeof value === 'function' ? value.bind(target) : value;
+                },
+            }) as unknown as Knex;
+        }
         return this._knex;
     }
 
@@ -387,9 +506,9 @@ export class Database implements IDatabase {
     getConnection(tableName?: string) {
         this.assertOpen();
         if (tableName) {
-            return this._knex(tableName);
+            return this.knex(tableName);
         }
-        return this._knex();
+        return this.knex();
     }
 
     async transaction(): Promise<ITransactionObject>;
@@ -397,7 +516,18 @@ export class Database implements IDatabase {
     async transaction<TResult>(
         cb?: ITransactionCallback<TResult>,
     ): Promise<TResult | ITransactionObject> {
-        this.assertOpen();
+        return this.runOperation(() => this.transactionInternal(cb));
+    }
+
+    private async transactionInternal<TResult>(
+        cb?: ITransactionCallback<TResult>,
+    ): Promise<TResult | ITransactionObject> {
+        if (transactionCtx.isReadOnly()) {
+            throw new LliDbError(
+                'Read snapshot transactions do not allow nested transactions',
+                'LLI41002',
+            );
+        }
         const noTransaction = !transactionCtx.get();
         const trx = noTransaction
             ? await this.knex.transaction()
