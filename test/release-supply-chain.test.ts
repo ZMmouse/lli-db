@@ -75,4 +75,24 @@ describe('release supply-chain controls', () => {
             Object.keys(packageJson.dependencies).length,
         );
     });
+
+    test('GitHub workflows enforce CI and tokenless trusted publishing', () => {
+        const ciWorkflow = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8');
+        const publishWorkflow = readFileSync(
+            join(root, '.github', 'workflows', 'publish.yml'),
+            'utf8',
+        );
+
+        expect(ciWorkflow).toContain('pnpm install --frozen-lockfile');
+        expect(ciWorkflow).toContain('npm run package:smoke');
+        expect(ciWorkflow).toContain('npm run security:scan');
+        expect(publishWorkflow).toContain('id-token: write');
+        expect(publishWorkflow).toContain('environment: npm');
+        expect(publishWorkflow).toContain('npm run release:verify');
+        expect(publishWorkflow).toContain('npm run pub');
+        expect(publishWorkflow).not.toMatch(/NODE_AUTH_TOKEN|NPM_TOKEN/);
+        expect(`${ciWorkflow}\n${publishWorkflow}`).not.toMatch(
+            /^\s*uses:\s*[^\s#]+@(?![a-f0-9]{40}(?:\s|$))/m,
+        );
+    });
 });

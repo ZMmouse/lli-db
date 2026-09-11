@@ -647,7 +647,7 @@ await db.query('article').update({
 
 ## 开发
 
-发布前执行 `npm run release:verify`。该门禁会验证测试、构建、tarball、干净临时项目安装、凭据/PII 扫描、CycloneDX SBOM、版本 tag、CHANGELOG、干净工作树和 npm provenance 环境。`npm run package:smoke` 会从当前源码重新构建 tarball，在隔离目录中仅安装生产依赖与 `better-sqlite3`，并执行包入口导入、内存建表、CRUD 和事务回滚。`npm run security:scan` 检查当前工作树和包内容且不会回显命中原文；完整历史使用独立的 `security:scan:history`。当前 Gitee 源地址尚未具备 npm provenance 支持的发布环境，因此正式发布仍处于阻塞状态；不要绕过门禁手工发布。完整说明见 [依赖与发布策略](docs/依赖与发布策略.md)和[安全扫描报告](docs/安全扫描报告.md)。
+发布前执行 `npm run release:verify`。该门禁会验证测试、构建、tarball、干净临时项目安装、凭据/PII 扫描、CycloneDX SBOM、版本 tag、CHANGELOG、干净工作树和 npm provenance 环境。`npm run package:smoke` 会从当前源码重新构建 tarball，在隔离目录中仅安装生产依赖与 `better-sqlite3`，并执行包入口导入、内存建表、CRUD 和事务回滚。`npm run security:scan` 检查当前工作树和包内容且不会回显命中原文；完整历史使用独立的 `security:scan:history`。仓库已提供 GitHub Actions CI 和基于版本 tag 的 OIDC trusted publishing 工作流；正式发布前仍需在 npm 与 GitHub 中完成 trusted publisher、`npm` Environment 和 tag 保护配置。完整说明见 [依赖与发布策略](docs/依赖与发布策略.md)和[安全扫描报告](docs/安全扫描报告.md)。
 
 目标 Electron 完成 `better-sqlite3` ABI 重建后，可运行 `npm run electron:smoke -- <electron-executable>`；也可设置 `LLI_DB_ELECTRON_BINARY`。PostgreSQL 的可选集成契约通过 `LLI_DB_TEST_PG_URL` 启用，未配置时保持跳过且兼容级别仍为 preview。
 

@@ -26,4 +26,4 @@
 
 GitHub 作为公开主仓库和 npm package 元数据指向的源码地址。Gitee 可以继续保留为私有历史存档，但旧数据库凭据仍必须轮换；私有属性不能替代凭据失效。若未来需要同步代码，应使用审核后的补丁或当前文件快照，不能把 Gitee 旧历史合并进 GitHub `main`。
 
-GitHub 首次推送后，应启用分支保护并增加 GitHub Actions：分别运行 security、quality、SQLite、package smoke 和 release provenance。PostgreSQL 契约继续按当前范围暂缓。
+仓库已提供 `.github/workflows/ci.yml`，在 main 推送和 pull request 上运行 security、quality、SQLite、package smoke 与 SBOM 检查；`.github/workflows/publish.yml` 仅响应 `v*` tag，通过受保护的 `npm` Environment 和 OIDC trusted publishing 发布。首次推送后仍需启用分支与 tag 保护，并在 npm 包设置中登记 `publish.yml`。PostgreSQL 契约继续按当前范围暂缓。
