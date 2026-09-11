@@ -206,6 +206,39 @@ describe('SQLite read snapshots', () => {
         rmSync(directory, { recursive: true, force: true });
     });
 
+    test('snapshot close drains a read that has already started', async () => {
+        const { db, directory } = await createDatabase();
+        const snapshot = await db.openReadSnapshot();
+        let entered!: () => void;
+        let release!: () => void;
+        const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+        const releasePromise = new Promise<void>((resolve) => (release = resolve));
+        db.middlewareManager.registerGlobalMiddleware('findMany', async (_ctx, next) => {
+            entered();
+            await releasePromise;
+            await next();
+        });
+
+        const queryPromise = snapshot.query('snapshotRecord').findMany();
+        await enteredPromise;
+        let closed = false;
+        const closePromise = snapshot.close().then(() => {
+            closed = true;
+        });
+        await Promise.resolve();
+        expect(closed).toBe(false);
+        expect(() => snapshot.query('snapshotRecord')).toThrow(
+            expect.objectContaining({ code: 'LLI41001' }),
+        );
+        release();
+        await expect(queryPromise).resolves.toHaveLength(3);
+        await closePromise;
+        expect(closed).toBe(true);
+
+        await db.close();
+        rmSync(directory, { recursive: true, force: true });
+    });
+
     test('database close drains an operation that already entered middleware', async () => {
         const { db, directory } = await createDatabase();
         let entered!: () => void;

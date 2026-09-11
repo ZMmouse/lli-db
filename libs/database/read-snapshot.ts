@@ -9,6 +9,9 @@ interface IReadSnapshotState {
     database: Database;
     transaction: Knex.Transaction;
     closed: boolean;
+    activeReads: number;
+    drainWaiters: Array<() => void>;
+    closePromise?: Promise<void>;
     openedAt: number;
     expiresAt: number;
     timer: ReturnType<typeof setTimeout>;
@@ -33,9 +36,42 @@ const assertOpen = (snapshot: ReadSnapshot) => {
 
 const runRead = async <T>(snapshot: ReadSnapshot, callback: (database: Database) => Promise<T>) => {
     const state = assertOpen(snapshot);
-    return transactionCtx.run(state.transaction, () => callback(state.database), {
-        readOnly: true,
-    });
+    state.activeReads += 1;
+    try {
+        return await transactionCtx.run(state.transaction, () => callback(state.database), {
+            readOnly: true,
+        });
+    } finally {
+        state.activeReads -= 1;
+        if (state.activeReads === 0) {
+            for (const resolve of state.drainWaiters.splice(0)) resolve();
+        }
+    }
+};
+
+const closeSnapshot = (snapshot: ReadSnapshot, reason: 'close' | 'expire') => {
+    const state = getState(snapshot);
+    if (state.closePromise) return state.closePromise;
+    state.closed = true;
+    clearTimeout(state.timer);
+    state.closePromise = (async () => {
+        if (state.activeReads > 0) {
+            await new Promise<void>((resolve) => state.drainWaiters.push(resolve));
+        }
+        try {
+            if (!state.transaction.isCompleted()) {
+                await state.transaction.raw('PRAGMA query_only = OFF').catch(() => undefined);
+                await state.transaction.rollback();
+            }
+        } finally {
+            state.onClose(reason);
+            state.database.diagnostics.emit({
+                type: reason === 'expire' ? 'snapshot:expire' : 'snapshot:close',
+                operation: reason,
+            });
+        }
+    })();
+    return state.closePromise;
 };
 
 export class ReadSnapshotRepository<T> {
@@ -77,13 +113,15 @@ export class ReadSnapshot {
             database,
             transaction,
             closed: false,
+            activeReads: 0,
+            drainWaiters: [],
             openedAt,
             expiresAt: openedAt + maxLifetimeMs,
             timer: undefined as unknown as ReturnType<typeof setTimeout>,
             onClose,
         };
         state.timer = setTimeout(() => {
-            void this.close('expire').catch(() => undefined);
+            void closeSnapshot(this, 'expire').catch(() => undefined);
         }, maxLifetimeMs);
         state.timer.unref?.();
         states.set(this, state);
@@ -98,22 +136,7 @@ export class ReadSnapshot {
         return new ReadSnapshotRepository<T>(this, code);
     }
 
-    async close(reason: 'close' | 'expire' = 'close') {
-        const state = getState(this);
-        if (state.closed) return;
-        state.closed = true;
-        clearTimeout(state.timer);
-        try {
-            if (!state.transaction.isCompleted()) {
-                await state.transaction.raw('PRAGMA query_only = OFF').catch(() => undefined);
-                await state.transaction.rollback();
-            }
-        } finally {
-            state.onClose(reason);
-            state.database.diagnostics.emit({
-                type: reason === 'expire' ? 'snapshot:expire' : 'snapshot:close',
-                operation: reason,
-            });
-        }
+    close() {
+        return closeSnapshot(this, 'close');
     }
 }
