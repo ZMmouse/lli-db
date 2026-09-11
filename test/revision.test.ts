@@ -211,6 +211,24 @@ describe('revision optimistic concurrency', () => {
         });
         await new ModelTableMigrator(db).syncAll();
         try {
+            const updateTarget = await db.query<{ id: string }>('revisionRecord').create({
+                data: { title: 'before update' },
+            });
+            await expect(
+                db.query('revisionRecord').update({
+                    where: { id: updateTarget.id },
+                    expectedRevision: 1,
+                    data: { title: 'after update' },
+                }),
+            ).resolves.toMatchObject({ title: 'after update', revision: 2 });
+            await expect(
+                db.query('revisionRecord').update({
+                    where: { id: updateTarget.id },
+                    expectedRevision: 1,
+                    data: { title: 'stale update' },
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40901' });
+
             const created = await db.query<{ id: string }>('revisionRecord').create({
                 data: { title: 'created' },
             });
@@ -228,6 +246,13 @@ describe('revision optimistic concurrency', () => {
             ).resolves.toBe(1);
             const raw = await db.knex('revision_record').where({ id: created.id }).first();
             expect(raw).toMatchObject({ deleted: 1, revision: 2 });
+            await expect(
+                db.query('revisionRecord').update({
+                    where: { id: created.id },
+                    expectedRevision: 2,
+                    data: { title: 'must stay deleted' },
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40901' });
 
             const lastWriteWins = await db.query<{ id: string }>('revisionRecord').create({
                 data: { title: 'last-write-wins' },

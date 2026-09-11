@@ -35,7 +35,20 @@ const getExpectedRevisionId = (code: string, model: IModel, params: IParams) => 
     }
     const where = params.where;
     const id = isPlainObject(where) ? (where as Record<string, unknown>).id : undefined;
-    if (typeof id !== 'string' || id.length === 0 || Object.keys(where as object).length !== 1) {
+    const whereRecord = where as Record<string, unknown>;
+    const logicDeleteScope = whereRecord?.deleted;
+    const logicDeleteCondition = logicDeleteScope as Record<string, unknown>;
+    const hasValidLogicDeleteScope =
+        model.useLogicDelete === true &&
+        isPlainObject(logicDeleteScope) &&
+        Object.keys(logicDeleteCondition).length === 1 &&
+        logicDeleteCondition.notEq === true;
+    const allowedKeyCount = hasValidLogicDeleteScope ? 2 : 1;
+    if (
+        typeof id !== 'string' ||
+        id.length === 0 ||
+        Object.keys(where as object).length !== allowedKeyCount
+    ) {
         throw new LliDbError(
             'expectedRevision requires where to contain only a scalar id',
             'LLI400',
@@ -258,6 +271,9 @@ export class EntityManager {
                 }
 
                 const writeWhere: IAnyObject = { id: row.id };
+                if (model.useLogicDelete) {
+                    writeWhere.deleted = { notEq: true };
+                }
                 if (ctx.params.expectedRevision !== undefined) {
                     writeWhere.revision = ctx.params.expectedRevision;
                 }
