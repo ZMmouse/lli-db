@@ -13,9 +13,12 @@ export const DatetimeField: IField = {
         }
         return new Date(value);
     },
-    fromDB(value: string) {
+    fromDB(value: string, db) {
         if (isNil(value)) {
             return null;
+        }
+        if (db.config.validation?.datetimeFormat === 'iso-utc-ms') {
+            return new Date(value).toISOString();
         }
         return dayjs(value).format('YYYY-MM-DD hh:mm:ss');
     },
