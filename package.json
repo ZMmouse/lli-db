@@ -30,7 +30,7 @@
         "test-c": "jest --coverage",
         "verify": "npm run typecheck && npm run typecheck:contracts && npm run lint && npm run test:safe",
         "prepack": "npm run clean && npm run verify && npm run build",
-        "pack:check": "npm pack --dry-run",
+        "pack:check": "npm pack --dry-run --cache artifacts/npm-smoke-cache",
         "package:smoke": "npm run clean && npm run build && tsx scripts/package-smoke.ts",
         "security:scan": "tsx scripts/security-scan.ts",
         "security:scan:history": "tsx scripts/security-scan.ts --history",
@@ -71,6 +71,14 @@
         "typescript": "^5.5.3"
     },
     "private": false,
+    "peerDependencies": {
+        "better-sqlite3": "^12.5.0"
+    },
+    "peerDependenciesMeta": {
+        "better-sqlite3": {
+            "optional": true
+        }
+    },
     "dependencies": {
         "dayjs": "^1.11.13",
         "knex": "^3.1.0",

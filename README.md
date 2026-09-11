@@ -597,6 +597,52 @@ await migrator.syncAll(
 
 完整的计划字段、SQLite 备份与失败恢复步骤见 [迁移运维指南](docs/迁移运维指南.md)。当前迁移自动化验证仅覆盖 SQLite；同进程锁不能替代跨进程部署锁，PostgreSQL DDL 与锁行为尚未验证，因此不建议在生产环境无人值守运行。
 
+## Minlet 数据层能力
+
+面向不可信 JSON 输入时，可启用严格校验、revision 乐观锁、keyset cursor 和 SQLite 只读快照。新能力均为显式启用，原有 `coerce`、page/offset 和未启用 revision 的模型保持兼容。
+
+```typescript
+const db = new Database({
+  connection: {
+    client: 'better-sqlite3',
+    connection: { filename: './app.sqlite3' },
+    useNullAsDefault: true,
+    pool: { min: 1, max: 4 },
+  },
+  models,
+  validation: {
+    mode: 'strict',
+    rejectUnknownFields: true,
+    datetimeFormat: 'iso-utc-ms',
+  },
+  sqlite: {
+    journalMode: 'wal',
+    foreignKeys: true,
+    busyTimeoutMs: 5000,
+    synchronous: 'normal',
+  },
+  readSnapshots: { maxActive: 8, maxLifetimeMs: 300000 },
+});
+```
+
+模型设置 `useRevision: true` 后会注入 `Revision` 扩展字段，创建生命周期由扩展字段中间件处理，记录从 `revision = 1` 开始。带 `expectedRevision` 的 update/delete 使用单条条件语句完成比较和修改，条件未命中时抛出 `LLI40901`。`findCursorPage()` 返回未签名的 `nextPosition`；外部 cursor token、身份和权限绑定仍应由调用方完成。
+
+```typescript
+const page = await db.query('article').findCursorPage({
+  orderBy: [{ field: 'publishedAt', direction: 'desc' }],
+  after: previousPosition,
+  limit: 50,
+});
+
+await db.query('article').update({
+  where: { id },
+  expectedRevision: 3,
+  data: { title: 'new title' },
+});
+```
+
+强一致翻页可在文件型 `better-sqlite3` 数据库上显式打开只读快照，并在 `finally` 中关闭。上线或迁移前可调用 `backup()`、`integrityCheck()` 和 `validateStoredData()`；`syncAll({ validateStoredData: true })` 会在迁移事务提交前执行存量校验。完整契约、限制和恢复顺序见 [Minlet 数据层与 SQLite 运维指南](docs/Minlet数据层与SQLite运维指南.md)。
+
 ## 开发
 
 发布前执行 `npm run release:verify`。该门禁会验证测试、构建、tarball、干净临时项目安装、凭据/PII 扫描、CycloneDX SBOM、版本 tag、CHANGELOG、干净工作树和 npm provenance 环境。`npm run package:smoke` 会从当前源码重新构建 tarball，在隔离目录中仅安装生产依赖与 `better-sqlite3`，并执行包入口导入、内存建表、CRUD 和事务回滚。`npm run security:scan` 检查当前工作树和包内容且不会回显命中原文；完整历史使用独立的 `security:scan:history`。当前 Gitee 源地址尚未具备 npm provenance 支持的发布环境，因此正式发布仍处于阻塞状态；不要绕过门禁手工发布。完整说明见 [依赖与发布策略](docs/依赖与发布策略.md)和[安全扫描报告](docs/安全扫描报告.md)。

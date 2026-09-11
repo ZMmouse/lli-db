@@ -1,4 +1,21 @@
-import type { IDatabaseConfig, IEncryptConfig, IQueryConfig } from './database/types/database';
+import type {
+    IDatabaseConfig,
+    IDatetimeFormat,
+    IEncryptConfig,
+    IQueryConfig,
+    IValidationConfig,
+    IValidationMode,
+    IReadSnapshotConfig,
+    IReadSnapshotOptions,
+    ISqliteConfig,
+    IDatabaseBackupOptions,
+    IDatabaseBackupResult,
+    IIntegrityCheckOptions,
+    IIntegrityCheckResult,
+    IStoredDataValidationIssue,
+    IStoredDataValidationOptions,
+    IStoredDataValidationReport,
+} from './database/types/database';
 import type { EntityRepository } from './database/entity-manager/entity-repository';
 import type { EntityManager } from './database/entity-manager';
 import type { QueryBuilder } from './database/query';
@@ -12,7 +29,11 @@ export type {
     ISelectObject,
     IUpdateManyParams,
     IWhere,
+    ICursorOrder,
+    ICursorPageParams,
 } from './database/types/query';
+export type { ICursorPageResult } from './database/types/i-result';
+export { ReadSnapshot, ReadSnapshotRepository } from './database/read-snapshot';
 export type {
     ITransactionCallback,
     ITransactionContext,
@@ -77,6 +98,19 @@ export type {
     IDatabaseConfig,
     IEncryptConfig,
     IQueryConfig,
+    IDatetimeFormat,
+    IValidationConfig,
+    IValidationMode,
+    IReadSnapshotConfig,
+    IReadSnapshotOptions,
+    ISqliteConfig,
+    IDatabaseBackupOptions,
+    IDatabaseBackupResult,
+    IIntegrityCheckOptions,
+    IIntegrityCheckResult,
+    IStoredDataValidationIssue,
+    IStoredDataValidationOptions,
+    IStoredDataValidationReport,
     EntityRepository,
     EntityManager,
     QueryBuilder,

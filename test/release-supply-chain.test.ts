@@ -27,6 +27,8 @@ describe('release supply-chain controls', () => {
         );
         expect(packageJson.dependencies.tslib).toBe('^2.8.1');
         expect(packageJson.devDependencies.tslib).toBeUndefined();
+        expect(packageJson.peerDependencies['better-sqlite3']).toBe('^12.5.0');
+        expect(packageJson.peerDependenciesMeta['better-sqlite3']).toEqual({ optional: true });
     });
 
     test('release tag must exactly match the package version', () => {
