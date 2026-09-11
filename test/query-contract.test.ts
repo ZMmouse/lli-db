@@ -250,6 +250,27 @@ describe('returning contract', () => {
             await db.knex.destroy();
         }
     });
+
+    test.each([
+        ['an empty field list', []],
+        ['an empty field', ['']],
+        ['duplicate fields', ['displayName', 'displayName']],
+        ['a wildcard mixed with fields', ['*', 'displayName']],
+    ])('rejects %s before executing the mutation', async (_label, fields) => {
+        const db = await createDatabase();
+
+        try {
+            const builder = db
+                .createQueryBuilder('contractAuthor')
+                .insert({ id: 'author-invalid', displayName: 'Invalid' });
+            expect(() => builder.returning(fields)).toThrow(
+                expect.objectContaining({ code: 'LLI400' }),
+            );
+            await expect(db.query('contractAuthor').count({})).resolves.toBe(2);
+        } finally {
+            await db.knex.destroy();
+        }
+    });
 });
 
 describe('custom column name query contract', () => {
@@ -284,6 +305,7 @@ describe('custom column name query contract', () => {
             await db.knex.destroy();
         }
     });
+
 });
 
 describe('query input immutability', () => {

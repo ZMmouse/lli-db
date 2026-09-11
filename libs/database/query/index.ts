@@ -516,6 +516,25 @@ export class QueryBuilder {
     }
 
     returning(fieldCode: '*' | string | string[]) {
+        const fieldCodes = Array.isArray(fieldCode) ? fieldCode : [fieldCode];
+        if (
+            fieldCodes.length === 0 ||
+            fieldCodes.some((field) => typeof field !== 'string' || field.trim().length === 0)
+        ) {
+            throw new LliDbError('returning requires at least one non-empty field', 'LLI400');
+        }
+        if (fieldCodes.includes('*') && (fieldCodes.length !== 1 || fieldCode !== '*')) {
+            throw new LliDbError('returning cannot combine * with model fields', 'LLI400');
+        }
+        if (new Set(fieldCodes).size !== fieldCodes.length) {
+            throw new LliDbError('returning fields must be unique', 'LLI400');
+        }
+        const unknown = fieldCodes.find(
+            (field) => field !== '*' && !(field in this.model.attributes),
+        );
+        if (unknown) {
+            throw new LliDbError(`Unknown returning field: ${unknown}`, 'LLI400');
+        }
         this.state.returning = fieldCode;
         return this;
     }
