@@ -6,7 +6,7 @@
 
 适用范围 `@llii/db 0.0.16` 之后的能力演进
 
-实施结果：审计指出的仓库内 P0 至 P6 缺口已重新打开并修复，包括 ReadSnapshot 的只读边界、strict 关系/子记录/UID、cursor 位置值精确类型、close drain、快照指标、SQLite pragma 状态查询、WAL/query-only 防线、稳定 integrity 错误码、revision 与逻辑删除、原子 update returning、独立乐观更新类型以及相应迁移/并发/回滚测试。复查又补齐了关闭期间的内部重入拒绝、并发快照名额预留、`expectedRevision` 的 mutation-only 契约、快照回滚失败的保留/重试/诊断语义，以及 `returning()` 的前置参数校验。revision 继续作为 `SysExpansionFieldTypeEnum.REVISION` 扩展字段，由写入执行器完成 compare-and-swap。`npm run verify` 当前为 31 个通过的测试套件、256 个通过的测试；另有 1 个 PostgreSQL 集成套件、2 个测试因未配置 `LLI_DB_TEST_PG_URL` 而跳过。Node tarball 消费端验证通过。Electron 最小 ABI smoke 工程和执行命令已经加入，但目标 Electron 可执行文件尚未提供，因此不能把“脚本已实现”写成“目标 ABI 已通过”。
+实施结果：审计指出的仓库内 P0 至 P6 缺口已重新打开并修复，包括 ReadSnapshot 的只读边界、strict 关系/子记录/UID、cursor 位置值精确类型、close drain、快照指标、SQLite pragma 状态查询、WAL/query-only 防线、稳定 integrity 错误码、revision 与逻辑删除、原子 update returning、独立乐观更新类型以及相应迁移/并发/回滚测试。后续复查又补齐了关闭期间的内部重入拒绝、并发快照名额预留、`expectedRevision` 的 mutation-only 契约、快照回滚失败的保留/重试/诊断语义、`returning()` 的前置参数校验、嵌套子记录的逻辑删除与 revision 语义、默认值严格校验、Windows SQLite 迁移锁路径归一化、快照打开清理错误诊断，以及手动事务关闭边界测试。revision 继续作为 `SysExpansionFieldTypeEnum.REVISION` 扩展字段，由写入执行器完成 compare-and-swap。当前等价 `npm run verify` 的各项检查均通过，共 31 个通过的测试套件、264 个通过的测试；另有 1 个 PostgreSQL 集成套件、2 个测试因未配置 `LLI_DB_TEST_PG_URL` 而跳过。Node tarball 消费端验证通过。Electron 最小 ABI smoke 工程和执行命令已经加入，但目标 Electron 可执行文件尚未提供，因此不能把“脚本已实现”写成“目标 ABI 已通过”。
 
 ## 1. 计划目标
 
