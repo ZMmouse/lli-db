@@ -14,6 +14,8 @@ import { generateType } from '../database/generate/generate-type';
 import { toDiagnosticError } from '../database/diagnostics';
 import { LliDbError } from '../database/error/lli-db-error';
 import { resolve } from 'node:path';
+import { validateStoredData } from '../database/stored-data-validator';
+import type { IStoredDataValidationOptions } from '../database/types/database';
 
 const modelRecord: IModel = {
     code: 'lliModelRecord',
@@ -268,6 +270,8 @@ export interface IMigrationPlan {
 export interface ISyncAllOptions {
     /** Required before executing operations that may discard or reinterpret stored data. */
     allowDestructive?: boolean;
+    /** Validate all stored rows against current model types before committing. */
+    validateStoredData?: boolean | IStoredDataValidationOptions;
 }
 
 interface IAttributeDiff {
@@ -712,6 +716,7 @@ export class ModelTableMigrator {
         const currentModels = this._db.modelStore.getModels();
         validateModels(currentModels, {
             isFieldTypeRegistered: (type) => this._db.fieldTypeManager.has(type),
+            allowImplicitSystemAttributes: true,
         });
         const previousModels = await this.getPreBootStrapModels(knex);
         return buildMigrationPlan(currentModels, previousModels);
@@ -734,6 +739,7 @@ export class ModelTableMigrator {
             try {
                 validateModels(currentModels, {
                     isFieldTypeRegistered: (type) => this._db.fieldTypeManager.has(type),
+                    allowImplicitSystemAttributes: true,
                 });
                 result = await this._db.transaction(async ({ trx }) => {
                     const preModels = await this.getPreBootStrapModels(trx, true);
@@ -755,7 +761,24 @@ export class ModelTableMigrator {
                     for (const model of currentModels) {
                         await this.sync(model, preModelMap[model.code], trx);
                     }
-                    return this.saveCurrentModels(currentModels, trx);
+                    const saved = await this.saveCurrentModels(currentModels, trx);
+                    if (options.validateStoredData) {
+                        const report = await validateStoredData(
+                            this._db,
+                            options.validateStoredData === true
+                                ? {}
+                                : options.validateStoredData,
+                            trx,
+                        );
+                        if (!report.ok) {
+                            throw new LliDbError(
+                                'Stored data validation failed during migration',
+                                'LLI40020',
+                                { validationReport: report },
+                            );
+                        }
+                    }
+                    return saved;
                 });
             } catch (error) {
                 const isConfirmationError =

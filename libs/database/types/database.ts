@@ -4,6 +4,7 @@ import type { IModel } from './model';
 import type { Encrypt } from '../utils';
 import type { Diagnostics } from '../diagnostics';
 import type { IDiagnosticListener, IDiagnosticsConfig } from './diagnostics';
+import type { ReadSnapshot } from '../read-snapshot';
 
 export interface IEncryptConfig {
     /** Default 32-byte key used by AES encrypted fields. */
@@ -25,6 +26,79 @@ export interface IQueryConfig {
     populateBatchSize?: number;
 }
 
+export type IValidationMode = 'coerce' | 'strict';
+export type IDatetimeFormat = 'legacy' | 'iso-utc-ms';
+
+export interface IValidationConfig {
+    /** Keep historical coercion by default; strict rejects type coercion. */
+    mode?: IValidationMode;
+    /** Reject keys that are not model attributes or declared child payloads. */
+    rejectUnknownFields?: boolean;
+    /** Controls DATETIME output. Defaults to legacy for compatibility. */
+    datetimeFormat?: IDatetimeFormat;
+}
+
+export interface IReadSnapshotConfig {
+    /** Maximum concurrently open snapshots. Defaults to 8. */
+    maxActive?: number;
+    /** Maximum lifetime accepted by openReadSnapshot. Defaults to 300000. */
+    maxLifetimeMs?: number;
+}
+
+export interface IReadSnapshotOptions {
+    maxLifetimeMs?: number;
+}
+
+export interface ISqliteConfig {
+    journalMode?: 'wal' | 'delete';
+    foreignKeys?: boolean;
+    busyTimeoutMs?: number;
+    synchronous?: 'off' | 'normal' | 'full' | 'extra';
+}
+
+export interface IDatabaseBackupOptions {
+    destination: string;
+    overwrite?: boolean;
+    verify?: boolean;
+}
+
+export interface IDatabaseBackupResult {
+    destination: string;
+    size: number;
+    completedAt: string;
+    verified: boolean;
+}
+
+export interface IIntegrityCheckOptions {
+    quick?: boolean;
+}
+
+export interface IIntegrityCheckResult {
+    ok: boolean;
+    messages: string[];
+}
+
+export interface IStoredDataValidationOptions {
+    models?: string[];
+    batchSize?: number;
+    stopAfterErrors?: number;
+}
+
+export interface IStoredDataValidationIssue {
+    modelCode: string;
+    fieldCode: string;
+    recordId: string;
+    reason: string;
+}
+
+export interface IStoredDataValidationReport {
+    ok: boolean;
+    checkedRows: number;
+    errorCount: number;
+    truncated: boolean;
+    issues: IStoredDataValidationIssue[];
+}
+
 export interface IDatabaseConfig {
     // 应用根目录
     appRoot?: string;
@@ -40,6 +114,9 @@ export interface IDatabaseConfig {
     models: IModel[];
     encrypt?: IEncryptConfig;
     query?: IQueryConfig;
+    validation?: IValidationConfig;
+    readSnapshots?: IReadSnapshotConfig;
+    sqlite?: ISqliteConfig;
     diagnostics?: IDiagnosticsConfig;
 }
 
@@ -49,4 +126,11 @@ export interface IDatabase {
     encrypt: Encrypt;
     diagnostics: Diagnostics;
     onDiagnostic(listener: IDiagnosticListener): () => void;
+    close(): Promise<void>;
+    openReadSnapshot(options?: IReadSnapshotOptions): Promise<ReadSnapshot>;
+    backup(options: IDatabaseBackupOptions): Promise<IDatabaseBackupResult>;
+    integrityCheck(options?: IIntegrityCheckOptions): Promise<IIntegrityCheckResult>;
+    validateStoredData(
+        options?: IStoredDataValidationOptions,
+    ): Promise<IStoredDataValidationReport>;
 }
