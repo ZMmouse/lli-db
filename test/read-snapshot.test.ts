@@ -2,8 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import type { Knex } from 'knex';
 import { Database, ModelTableMigrator, SysFieldTypeEnum } from '../libs';
 import type { IDiagnosticEvent, IModel } from '../libs';
+import { transactionCtx } from '../libs/database/transaction-ctx';
 
 const model: IModel = {
     code: 'snapshotRecord',
@@ -301,6 +303,45 @@ describe('SQLite read snapshots', () => {
         });
         expect(events).toContainEqual(expect.objectContaining({ type: 'snapshot:expire' }));
 
+        await db.close();
+        rmSync(directory, { recursive: true, force: true });
+    });
+
+    test('retains and reports a snapshot when automatic rollback fails', async () => {
+        const events: IDiagnosticEvent[] = [];
+        const { db, directory } = await createDatabase(2, 100, events);
+        const snapshot = await db.openReadSnapshot({ maxLifetimeMs: 50 });
+        let transaction: Knex.Transaction | null | undefined;
+        db.middlewareManager.registerGlobalMiddleware('findMany', async (_ctx, next) => {
+            transaction = transactionCtx.get();
+            await next();
+        });
+        await snapshot.query('snapshotRecord').findMany();
+        expect(transaction).toBeDefined();
+        const rollback = jest
+            .spyOn(transaction as Knex.Transaction, 'rollback')
+            .mockRejectedValueOnce(new Error('simulated rollback failure'));
+
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(db.getReadSnapshotStats()).toMatchObject({
+            activeCount: 1,
+            autoClosedCount: 0,
+        });
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                type: 'snapshot:error',
+                operation: 'expire',
+                error: { name: 'Error' },
+            }),
+        );
+        expect(events).not.toContainEqual(expect.objectContaining({ type: 'snapshot:expire' }));
+
+        await expect(snapshot.close()).resolves.toBeUndefined();
+        expect(db.getReadSnapshotStats()).toMatchObject({
+            activeCount: 0,
+            autoClosedCount: 0,
+        });
+        rollback.mockRestore();
         await db.close();
         rmSync(directory, { recursive: true, force: true });
     });

@@ -1,5 +1,6 @@
 import type { Knex } from 'knex';
 import type { Database } from './database';
+import { toDiagnosticError } from './diagnostics';
 import { LliDbError } from './error/lli-db-error';
 import type { ICursorPageResult } from './types/i-result';
 import type { ICursorPageParams, IParams } from './types/query';
@@ -54,7 +55,8 @@ const closeSnapshot = (snapshot: ReadSnapshot, reason: 'close' | 'expire') => {
     if (state.closePromise) return state.closePromise;
     state.closed = true;
     clearTimeout(state.timer);
-    state.closePromise = (async () => {
+    let closePromise!: Promise<void>;
+    closePromise = (async () => {
         if (state.activeReads > 0) {
             await new Promise<void>((resolve) => state.drainWaiters.push(resolve));
         }
@@ -63,15 +65,23 @@ const closeSnapshot = (snapshot: ReadSnapshot, reason: 'close' | 'expire') => {
                 await state.transaction.raw('PRAGMA query_only = OFF').catch(() => undefined);
                 await state.transaction.rollback();
             }
-        } finally {
             state.onClose(reason);
             state.database.diagnostics.emit({
                 type: reason === 'expire' ? 'snapshot:expire' : 'snapshot:close',
                 operation: reason,
             });
+        } catch (error) {
+            if (state.closePromise === closePromise) state.closePromise = undefined;
+            state.database.diagnostics.emit({
+                type: 'snapshot:error',
+                operation: reason,
+                error: toDiagnosticError(error),
+            });
+            throw error;
         }
     })();
-    return state.closePromise;
+    state.closePromise = closePromise;
+    return closePromise;
 };
 
 export class ReadSnapshotRepository<T> {

@@ -27,6 +27,7 @@ const logLevels: Record<IDiagnosticEventType, LogLevel> = {
     'snapshot:open': 'debug',
     'snapshot:close': 'debug',
     'snapshot:expire': 'info',
+    'snapshot:error': 'error',
     'snapshot:limit': 'warn',
     'backup:start': 'info',
     'backup:success': 'info',

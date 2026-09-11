@@ -15,6 +15,7 @@ export type IDiagnosticEventType =
     | 'snapshot:open'
     | 'snapshot:close'
     | 'snapshot:expire'
+    | 'snapshot:error'
     | 'snapshot:limit'
     | 'backup:start'
     | 'backup:success'
