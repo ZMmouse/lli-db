@@ -830,7 +830,12 @@ export class ModelTableMigrator {
         if (client.includes('sqlite') && connection && typeof connection === 'object') {
             const filename = (connection as { filename?: unknown }).filename;
             if (typeof filename === 'string' && filename !== ':memory:') {
-                return `sqlite:${resolve(filename)}`;
+                const resolvedFilename = resolve(filename);
+                const lockFilename =
+                    process.platform === 'win32'
+                        ? resolvedFilename.toLocaleLowerCase('en-US')
+                        : resolvedFilename;
+                return `sqlite:${lockFilename}`;
             }
         }
 

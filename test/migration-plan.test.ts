@@ -171,6 +171,49 @@ describe('migration planning and operational safety', () => {
         }
     });
 
+    (process.platform === 'win32' ? test : test.skip)(
+        'normalizes Windows path casing before acquiring a SQLite migration lock',
+        async () => {
+            const directory = mkdtempSync(join(tmpdir(), 'lli-db-migration-case-lock-'));
+            const filename = join(directory, 'shared.sqlite3');
+            const alternateFilename = `${filename[0] === filename[0].toUpperCase() ? filename[0].toLowerCase() : filename[0].toUpperCase()}${filename.slice(1)}`;
+            const firstDb = createDatabase(filename, createModel(1));
+            const secondDb = createDatabase(alternateFilename, createModel(1));
+            const firstMigrator = new ModelTableMigrator(firstDb);
+            const secondMigrator = new ModelTableMigrator(secondDb);
+            let active = 0;
+            let maximumActive = 0;
+
+            const wrapSync = (migrator: ModelTableMigrator) => {
+                const original = migrator.sync.bind(migrator);
+                jest.spyOn(migrator, 'sync').mockImplementation(async (...args) => {
+                    active += 1;
+                    maximumActive = Math.max(maximumActive, active);
+                    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+                    try {
+                        return await original(...args);
+                    } finally {
+                        active -= 1;
+                    }
+                });
+            };
+            wrapSync(firstMigrator);
+            wrapSync(secondMigrator);
+
+            try {
+                expect(alternateFilename).not.toBe(filename);
+                await expect(
+                    Promise.all([firstMigrator.syncAll(), secondMigrator.syncAll()]),
+                ).resolves.toEqual([true, true]);
+                expect(maximumActive).toBe(1);
+            } finally {
+                await firstDb.knex.destroy();
+                await secondDb.knex.destroy();
+                rmSync(directory, { recursive: true, force: true });
+            }
+        },
+    );
+
     test('migrates revision on with existing rows and treats removing it as destructive', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'lli-db-revision-migration-'));
         const filename = join(directory, 'revision.sqlite3');
