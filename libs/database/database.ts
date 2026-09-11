@@ -47,6 +47,7 @@ export class Database implements IDatabase {
     private readonly _middlewareManager: MiddlewareManager;
     private readonly _diagnostics: Diagnostics;
     private readonly readSnapshots = new Set<ReadSnapshot>();
+    private pendingReadSnapshots = 0;
     private autoClosedSnapshotCount = 0;
     private readonly operationContext = new AsyncLocalStorage<boolean>();
     private activeOperations = 0;
@@ -171,11 +172,11 @@ export class Database implements IDatabase {
         if (!Number.isSafeInteger(maxActive) || maxActive < 1) {
             throw new LliDbError('readSnapshots.maxActive must be a positive integer', 'LLI400');
         }
-        if (this.readSnapshots.size >= maxActive) {
+        if (this.readSnapshots.size + this.pendingReadSnapshots >= maxActive) {
             this._diagnostics.emit({
                 type: 'snapshot:limit',
                 operation: 'openReadSnapshot',
-                snapshotCount: this.readSnapshots.size,
+                snapshotCount: this.readSnapshots.size + this.pendingReadSnapshots,
             });
             throw new LliDbError('Read snapshot limit reached', 'LLI42901');
         }
@@ -188,8 +189,10 @@ export class Database implements IDatabase {
         ) {
             throw new LliDbError('Invalid read snapshot lifetime', 'LLI400');
         }
-        const transaction = await this._knex.transaction();
+        this.pendingReadSnapshots += 1;
+        let transaction: Knex.Transaction | undefined;
         try {
+            transaction = await this._knex.transaction();
             const journalRows = (await transaction.raw('PRAGMA journal_mode')) as Array<
                 Record<string, unknown>
             >;
@@ -199,24 +202,26 @@ export class Database implements IDatabase {
             }
             await transaction.raw('PRAGMA query_only = ON');
             await transaction.raw('SELECT name FROM sqlite_master LIMIT 1');
+            const snapshot = new ReadSnapshot(this, transaction, requestedLifetime, (reason) => {
+                this.readSnapshots.delete(snapshot);
+                if (reason === 'expire') this.autoClosedSnapshotCount += 1;
+            });
+            this.readSnapshots.add(snapshot);
+            this._diagnostics.emit({
+                type: 'snapshot:open',
+                operation: 'openReadSnapshot',
+                snapshotCount: this.readSnapshots.size,
+            });
+            return snapshot;
         } catch (error) {
-            if (!transaction.isCompleted()) {
+            if (transaction && !transaction.isCompleted()) {
                 await transaction.raw('PRAGMA query_only = OFF').catch(() => undefined);
                 await transaction.rollback().catch(() => undefined);
             }
             throw error;
+        } finally {
+            this.pendingReadSnapshots -= 1;
         }
-        const snapshot = new ReadSnapshot(this, transaction, requestedLifetime, (reason) => {
-            this.readSnapshots.delete(snapshot);
-            if (reason === 'expire') this.autoClosedSnapshotCount += 1;
-        });
-        this.readSnapshots.add(snapshot);
-        this._diagnostics.emit({
-            type: 'snapshot:open',
-            operation: 'openReadSnapshot',
-            snapshotCount: this.readSnapshots.size,
-        });
-        return snapshot;
     }
 
     getReadSnapshotStats(): Readonly<IReadSnapshotStats> {

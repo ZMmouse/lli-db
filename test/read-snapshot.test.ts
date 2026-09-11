@@ -164,6 +164,31 @@ describe('SQLite read snapshots', () => {
         }
     });
 
+    test('reserves the active snapshot limit across concurrent opens', async () => {
+        const { db, directory } = await createDatabase(1);
+        try {
+            const results = await Promise.allSettled([
+                db.openReadSnapshot(),
+                db.openReadSnapshot(),
+            ]);
+            const fulfilled = results.filter(
+                (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof db.openReadSnapshot>>> =>
+                    result.status === 'fulfilled',
+            );
+            const rejected = results.filter(
+                (result): result is PromiseRejectedResult => result.status === 'rejected',
+            );
+            expect(fulfilled).toHaveLength(1);
+            expect(rejected).toHaveLength(1);
+            expect(rejected[0].reason).toMatchObject({ code: 'LLI42901' });
+            expect(db.getReadSnapshotStats().activeCount).toBe(1);
+            await fulfilled[0].value.close();
+        } finally {
+            await db.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
     test('applies configured SQLite pragmas', async () => {
         const { db, directory } = await createDatabase();
         try {
