@@ -42,7 +42,8 @@ export type IOperator =
     | 'startsWith'
     | 'notStartsWith'
     | 'endsWith'
-    | 'notEndsWith';
+    | 'notEndsWith'
+    | 'containsCaseSensitive';
 
 export type ILogical = 'and' | 'or' | 'not';
 
@@ -80,6 +81,22 @@ export interface IParams {
     limit?: number;
     offset?: number;
     count?: boolean;
+    /** Expected record revision for an atomic optimistic update or delete. */
+    expectedRevision?: number;
+}
+
+export interface ICursorOrder {
+    field: string;
+    direction: 'asc' | 'desc';
+}
+
+export interface ICursorPageParams {
+    where?: IWhere;
+    /** @deprecated Use `where` instead. */
+    filters?: IWhere;
+    orderBy: ICursorOrder[];
+    limit?: number;
+    after?: Record<string, string | number | boolean | null>;
 }
 
 export interface IUpdateManyParams extends IParams {
