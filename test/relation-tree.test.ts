@@ -204,6 +204,82 @@ describe('relation writes', () => {
 });
 
 describe('nested child deletes', () => {
+    test('updates only a child owned by the current parent and increments its revision', async () => {
+        const db = await createDatabase(childDeleteModels, true);
+        try {
+            const first = await db.query<{ id: string }>('deleteParent').create({
+                data: { name: 'first', deleteChildList: [{ name: 'first child' }] },
+            });
+            const second = await db.query<{ id: string }>('deleteParent').create({
+                data: { name: 'second', deleteChildList: [{ name: 'second child' }] },
+            });
+            const firstChild = await db.knex('delete_child').where({ parent_id: first.id }).first();
+            const secondChild = await db.knex('delete_child').where({ parent_id: second.id }).first();
+
+            await expect(
+                db.query('deleteParent').update({
+                    where: { id: first.id },
+                    expectedRevision: 1,
+                    data: {
+                        deleteChildList: [
+                            { id: firstChild.id, name: 'updated', __op: 'update' },
+                        ],
+                    },
+                }),
+            ).resolves.toMatchObject({ revision: 2 });
+            await expect(
+                db.knex('delete_child').where({ id: firstChild.id }).first(),
+            ).resolves.toMatchObject({ parent_id: first.id, name: 'updated', revision: 2 });
+
+            await expect(
+                db.query('deleteParent').update({
+                    where: { id: first.id },
+                    expectedRevision: 2,
+                    data: {
+                        deleteChildList: [
+                            { id: secondChild.id, name: 'stolen', __op: 'update' },
+                        ],
+                    },
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40020' });
+            await expect(
+                db.knex('delete_parent').where({ id: first.id }).first(),
+            ).resolves.toMatchObject({ revision: 2 });
+            await expect(
+                db.knex('delete_child').where({ id: secondChild.id }).first(),
+            ).resolves.toMatchObject({ parent_id: second.id, name: 'second child', revision: 1 });
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('does not insert a missing child through an update operation', async () => {
+        const db = await createDatabase(childDeleteModels, true);
+        try {
+            const parent = await db.query<{ id: string }>('deleteParent').create({
+                data: { name: 'parent' },
+            });
+
+            await expect(
+                db.query('deleteParent').update({
+                    where: { id: parent.id },
+                    expectedRevision: 1,
+                    data: {
+                        deleteChildList: [
+                            { id: 'missing-child', name: 'missing', __op: 'update' },
+                        ],
+                    },
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40020' });
+            await expect(db.knex('delete_child')).resolves.toHaveLength(0);
+            await expect(
+                db.knex('delete_parent').where({ id: parent.id }).first(),
+            ).resolves.toMatchObject({ revision: 1 });
+        } finally {
+            await db.close();
+        }
+    });
+
     test('preserves logical-delete, revision, and descendant semantics', async () => {
         const db = await createDatabase(childDeleteModels, true);
         try {

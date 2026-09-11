@@ -11,6 +11,8 @@ import { RelationWriter } from './relation-writer';
 import { toChildValueKey } from './transform';
 import { checkIsDelete } from './utils';
 
+const checkIsUpdate = (data: IAnyObject) => data.__op === 'update';
+
 export class ChildWriter {
     constructor(
         private readonly db: Database,
@@ -47,6 +49,63 @@ export class ChildWriter {
         await this.deletePlanner.deleteRows(childCode, deleteIds, 'id', transaction);
         await this.deletePlanner.deleteRelations(childCode, deleteIds, transaction);
         await this.deletePlanner.deleteChildMany(childCode, deleteIds, transaction);
+    }
+
+    private async writeChildren(
+        childCode: string,
+        parentRefFieldCode: string,
+        operationData: IRow[],
+        transaction: Knex.Transaction,
+    ) {
+        if (operationData.length === 0) return;
+        const childModel = this.db.modelStore.get(childCode);
+        const createData = operationData.filter((item) => !checkIsUpdate(item));
+        const updateData = operationData.filter(checkIsUpdate);
+
+        if (createData.length) {
+            const rows = createData.map((item) =>
+                processData(this.db, item, childModel, { withDefaults: true }),
+            );
+            await this.createQueryBuilder(childCode)
+                .insert(rows)
+                .returning('id')
+                .transacting(transaction)
+                .execute();
+        }
+
+        for (const item of updateData) {
+            const where: IWhere = {
+                id: item.id,
+                [parentRefFieldCode]: item[parentRefFieldCode],
+                ...(childModel.useLogicDelete ? { deleted: { notEq: true } } : {}),
+            };
+            const existing = await this.createQueryBuilder(childCode)
+                .select('id')
+                .where(where)
+                .first()
+                .transacting(transaction)
+                .execute<IRow | undefined>();
+            if (!existing) {
+                throw new LliDbError(
+                    `Child ${childCode} does not belong to the requested parent`,
+                    'LLI40020',
+                    { childCode, childId: item.id, parentId: item[parentRefFieldCode] },
+                );
+            }
+
+            const row = processData(this.db, item, childModel);
+            delete row.id;
+            delete row[parentRefFieldCode];
+            let query = this.createQueryBuilder(childCode).where(where).transacting(transaction);
+            if (Object.keys(row).length) query = query.update(row);
+            if (childModel.useRevision) query = query.increment('revision');
+            if (Object.keys(row).length || childModel.useRevision) {
+                await query.execute();
+            }
+        }
+
+        await this.relationWriter.create(childCode, operationData, transaction);
+        await this.createMany(childCode, operationData, transaction);
     }
 
     hasChild(data: IAnyObject, code: string) {
@@ -90,20 +149,12 @@ export class ChildWriter {
                     transaction,
                 );
 
-                if (operationData.length) {
-                    const newData = operationData.map((item) =>
-                        processData(this.db, item, childModel, { withDefaults: true }),
-                    );
-                    await this.createQueryBuilder(childCode)
-                        .insert(newData)
-                        .onConflict('id')
-                        .merge([])
-                        .returning('id')
-                        .transacting(transaction)
-                        .execute();
-                    await this.relationWriter.create(childCode, operationData, transaction);
-                    await this.createMany(childCode, operationData, transaction);
-                }
+                await this.writeChildren(
+                    childCode,
+                    childModel.parentRefFieldCode,
+                    operationData,
+                    transaction,
+                );
             }
         });
     }
@@ -145,19 +196,12 @@ export class ChildWriter {
                     transaction,
                 );
 
-                if (operationData.length) {
-                    const newData = operationData.map((item) =>
-                        processData(this.db, item, childModel, { withDefaults: true }),
-                    );
-                    await this.createQueryBuilder(childCode)
-                        .insert(newData)
-                        .onConflict('id')
-                        .merge([])
-                        .transacting(transaction)
-                        .execute();
-                    await this.relationWriter.create(childCode, operationData, transaction);
-                    await this.createMany(childCode, operationData, transaction);
-                }
+                await this.writeChildren(
+                    childCode,
+                    childModel.parentRefFieldCode,
+                    operationData,
+                    transaction,
+                );
             }
         });
     }
