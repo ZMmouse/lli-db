@@ -106,6 +106,8 @@ async function verifyPublicTypes() {
     void snapshot.database;
     // @ts-expect-error arbitrary transaction callbacks are not part of the snapshot API.
     await snapshot.run(async () => undefined);
+    // @ts-expect-error snapshot close reasons are internal and cannot be forged by callers.
+    await snapshot.close('expire');
     await snapshot.close();
 
     const backup = await db.backup({ destination: 'backup.sqlite3', verify: true });
