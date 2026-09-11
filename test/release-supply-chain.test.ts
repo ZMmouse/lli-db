@@ -85,10 +85,12 @@ describe('release supply-chain controls', () => {
         );
 
         expect(ciWorkflow).toContain('pnpm install --frozen-lockfile');
+        expect(ciWorkflow).toContain('runtime: node@22');
         expect(ciWorkflow).toContain('npm run package:smoke');
         expect(ciWorkflow).toContain('npm run security:scan');
         expect(publishWorkflow).toContain('id-token: write');
         expect(publishWorkflow).toContain('environment: npm');
+        expect(publishWorkflow).toContain('runtime: node@22');
         expect(publishWorkflow).toContain('npm run release:verify');
         expect(publishWorkflow).toContain('npm run pub');
         expect(publishWorkflow).not.toMatch(/NODE_AUTH_TOKEN|NPM_TOKEN/);
