@@ -113,6 +113,32 @@ describe('keyset cursor pagination', () => {
         }
     });
 
+    test('walks an all-null sort dataset using the id tie-breaker', async () => {
+        const db = await createDatabase();
+        try {
+            await db.knex('cursor_record').insert([
+                { id: 'n3', group_code: 'nulls', rank_value: null, title_text: 'third' },
+                { id: 'n1', group_code: 'nulls', rank_value: null, title_text: 'first' },
+                { id: 'n2', group_code: 'nulls', rank_value: null, title_text: 'second' },
+            ]);
+            const seen: string[] = [];
+            let after: Record<string, string | number | boolean | null> | undefined;
+            do {
+                const page = await db.query<CursorRecord>('cursorRecord').findCursorPage({
+                    where: { group: 'nulls' },
+                    orderBy: [{ field: 'rank', direction: 'asc' }],
+                    limit: 1,
+                    ...(after ? { after } : {}),
+                });
+                seen.push(...page.rows.map((row) => row.id));
+                after = page.nextPosition;
+            } while (after);
+            expect(seen).toEqual(['n1', 'n2', 'n3']);
+        } finally {
+            await db.close();
+        }
+    });
+
     test('returns a structural position and ignores inserts before it', async () => {
         const db = await createDatabase();
         try {
