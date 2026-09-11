@@ -67,7 +67,12 @@ export type IPopulate =
     | Array<IPopulate>
     | { [key: string]: IPopulateObject | Array<ISelect> };
 
-export interface IParams {
+export interface IOptimisticMutationOptions {
+    /** Expected record revision for an atomic optimistic update or delete. */
+    expectedRevision?: number;
+}
+
+export interface IParams extends IOptimisticMutationOptions {
     where?: IWhere;
     /** @deprecated Use `where` instead. */
     filters?: IWhere;
@@ -81,8 +86,6 @@ export interface IParams {
     limit?: number;
     offset?: number;
     count?: boolean;
-    /** Expected record revision for an atomic optimistic update or delete. */
-    expectedRevision?: number;
 }
 
 export interface ICursorOrder {
@@ -171,7 +174,7 @@ export interface IStatePopulateMap {
 
 export interface IState {
     data: any;
-    returning: null | string;
+    returning: null | '*' | string | string[];
     type: null | 'select' | 'update' | 'delete' | 'count' | 'insert' | 'min' | 'max';
     count: null | string;
     onConflict: any;

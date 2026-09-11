@@ -3,6 +3,7 @@ import type {
     IDiagnosticEvent,
     IQueryConfig,
     ITransactionContext,
+    IOptimisticMutationOptions,
 } from '../../libs';
 import { Database, ModelTableMigrator } from '../../libs';
 
@@ -42,6 +43,7 @@ const minletConfig: IDatabaseConfig = {
 void minletConfig;
 
 async function verifyPublicTypes() {
+    const optimistic: IOptimisticMutationOptions = { expectedRevision: 2 };
     const unsubscribe = db.onDiagnostic((event: Readonly<IDiagnosticEvent>) => {
         event.type.toUpperCase();
         // @ts-expect-error diagnostic events intentionally do not expose SQL.
@@ -85,12 +87,16 @@ async function verifyPublicTypes() {
 
     await db.query<User>('user').update({
         where: { id: 'user-1' },
-        expectedRevision: 2,
+        ...optimistic,
         data: { name: 'updated' },
     });
 
     const snapshot = await db.openReadSnapshot({ maxLifetimeMs: 10_000 });
     await snapshot.query<User>('user').findMany();
+    // @ts-expect-error snapshots intentionally do not expose their database.
+    void snapshot.database;
+    // @ts-expect-error arbitrary transaction callbacks are not part of the snapshot API.
+    await snapshot.run(async () => undefined);
     await snapshot.close();
 
     const backup = await db.backup({ destination: 'backup.sqlite3', verify: true });

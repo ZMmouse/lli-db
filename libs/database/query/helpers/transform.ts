@@ -84,3 +84,17 @@ export const fromRow = (db: Database, meta: IModel, row: IRow | IRow[] | undefin
 
     return fromSingleRow(db, meta, row);
 };
+
+export const fromReturningRow = (db: Database, meta: IModel, row: IRow | IRow[] | undefined) => {
+    const rename = (item: IRow) => {
+        const result: IRow = {};
+        for (const attribute of Object.values(meta.attributes)) {
+            if (Object.prototype.hasOwnProperty.call(item, attribute.columnName)) {
+                result[attribute.code] = item[attribute.columnName];
+            }
+        }
+        return result;
+    };
+    const renamed = Array.isArray(row) ? row.map(rename) : row ? rename(row) : row;
+    return fromRow(db, meta, renamed);
+};

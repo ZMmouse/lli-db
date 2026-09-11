@@ -49,11 +49,25 @@ export interface IReadSnapshotOptions {
     maxLifetimeMs?: number;
 }
 
+export interface IReadSnapshotStats {
+    activeCount: number;
+    oldestAgeMs: number;
+    autoClosedCount: number;
+}
+
 export interface ISqliteConfig {
     journalMode?: 'wal' | 'delete';
     foreignKeys?: boolean;
     busyTimeoutMs?: number;
     synchronous?: 'off' | 'normal' | 'full' | 'extra';
+}
+
+export interface ISqliteRuntimeState {
+    journalMode: string;
+    foreignKeys: boolean;
+    busyTimeoutMs: number;
+    synchronous: 'off' | 'normal' | 'full' | 'extra' | string;
+    queryOnly: boolean;
 }
 
 export interface IDatabaseBackupOptions {
@@ -128,6 +142,8 @@ export interface IDatabase {
     onDiagnostic(listener: IDiagnosticListener): () => void;
     close(): Promise<void>;
     openReadSnapshot(options?: IReadSnapshotOptions): Promise<ReadSnapshot>;
+    getReadSnapshotStats(): Readonly<IReadSnapshotStats>;
+    getSqliteRuntimeState(): Promise<Readonly<ISqliteRuntimeState>>;
     backup(options: IDatabaseBackupOptions): Promise<IDatabaseBackupResult>;
     integrityCheck(options?: IIntegrityCheckOptions): Promise<IIntegrityCheckResult>;
     validateStoredData(

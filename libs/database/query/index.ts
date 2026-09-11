@@ -8,7 +8,7 @@ import { applyWhere, buildWhere } from './helpers/where';
 import type { IStateJoin } from '../types/query';
 import { applyPopulate, buildPopulate } from './helpers/populate';
 import { applyJoins } from './helpers/join';
-import { fromRow, toColumnName, toRow } from './helpers/transform';
+import { fromReturningRow, fromRow, toColumnName, toRow } from './helpers/transform';
 import { transactionCtx } from '../transaction-ctx';
 import { applyGroupBy, applyGroupByWithSelect } from './helpers/group-by';
 import { applyDecrements, applyIncrements } from './helpers/decrement-increment';
@@ -259,8 +259,18 @@ export class QueryBuilder {
         }
 
         if (this.state.returning) {
-            if (this.state.returning in this.model.attributes) {
-                query.returning(toColumnName(this.model, this.state.returning));
+            const returning = this.state.returning;
+            if (returning === '*') {
+                query.returning('*');
+            } else {
+                const fieldCodes = Array.isArray(returning) ? returning : [returning];
+                const unknown = fieldCodes.find(
+                    (fieldCode) => !(fieldCode in this.model.attributes),
+                );
+                if (unknown) {
+                    throw new LliDbError(`Unknown returning field: ${unknown}`, 'LLI400');
+                }
+                query.returning(fieldCodes.map((fieldCode) => toColumnName(this.model, fieldCode)));
             }
         }
 
@@ -306,6 +316,10 @@ export class QueryBuilder {
     }
 
     async execute<T = any>(): Promise<T> {
+        return this.db.runOperation(() => this.executeInternal<T>());
+    }
+
+    private async executeInternal<T = any>(): Promise<T> {
         const startedAt = Date.now();
         const operation = this.state.type ?? 'select';
         this.db.diagnostics.emit({
@@ -315,6 +329,14 @@ export class QueryBuilder {
         });
 
         try {
+            if (
+                transactionCtx.isReadOnly() &&
+                (this.state.type === 'insert' ||
+                    this.state.type === 'update' ||
+                    this.state.type === 'delete')
+            ) {
+                throw new LliDbError('Read snapshot transactions do not allow writes', 'LLI41002');
+            }
             const query = this.buildQuery();
 
             const transaction = transactionCtx.get();
@@ -325,7 +347,9 @@ export class QueryBuilder {
 
             let rows: any = await query;
 
-            if (this.state.type === 'select') {
+            if (this.state.returning === '*') {
+                rows = fromReturningRow(this.db, this.model, rows);
+            } else if (this.state.type === 'select') {
                 rows = fromRow(this.db, this.model, rows);
             }
 
@@ -471,7 +495,7 @@ export class QueryBuilder {
         return this;
     }
 
-    returning(fieldCode: string) {
+    returning(fieldCode: '*' | string | string[]) {
         this.state.returning = fieldCode;
         return this;
     }

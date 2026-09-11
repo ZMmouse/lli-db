@@ -20,7 +20,10 @@ const requireNonEmptyString = (value: unknown, path: string) => {
 };
 
 const hasAttribute = (model: IModel, code: string) => {
-    if (implicitAttributeCodes.has(code) || Object.prototype.hasOwnProperty.call(model.attributes, code)) {
+    if (
+        implicitAttributeCodes.has(code) ||
+        Object.prototype.hasOwnProperty.call(model.attributes, code)
+    ) {
         return true;
     }
     if (model.useRevision && code === 'revision') return true;
@@ -80,10 +83,7 @@ const validateAttribute = (
  * types have had a chance to register. Without it, the validator performs only
  * structural and cross-model checks and is safe to call before opening a database.
  */
-export const validateModels = (
-    models: IModel[],
-    options: IValidateModelsOptions = {},
-): true => {
+export const validateModels = (models: IModel[], options: IValidateModelsOptions = {}): true => {
     if (!Array.isArray(models)) {
         fail('models', 'expected an array');
     }
@@ -100,13 +100,12 @@ export const validateModels = (
         }
         requireNonEmptyString(model.code, `${path}.code`);
         requireNonEmptyString(model.tableName, `${path}.tableName`);
-        if (model.useRevision && model.useLogicDelete) {
-            fail(path, 'useRevision cannot be combined with useLogicDelete');
-        }
-
         const previousCodePath = modelCodePaths.get(model.code);
         if (previousCodePath) {
-            fail(`${path}.code`, `duplicate model code "${model.code}"; first declared at ${previousCodePath}`);
+            fail(
+                `${path}.code`,
+                `duplicate model code "${model.code}"; first declared at ${previousCodePath}`,
+            );
         }
         modelCodePaths.set(model.code, `${path}.code`);
 
@@ -119,7 +118,11 @@ export const validateModels = (
         }
         tableNamePaths.set(model.tableName, `${path}.tableName`);
 
-        if (!model.attributes || typeof model.attributes !== 'object' || Array.isArray(model.attributes)) {
+        if (
+            !model.attributes ||
+            typeof model.attributes !== 'object' ||
+            Array.isArray(model.attributes)
+        ) {
             fail(`${path}.attributes`, 'expected an attribute map');
         }
         if (
@@ -225,7 +228,11 @@ export const validateModels = (
                         `${path}.midCode`,
                         `intermediate model "${relation.midCode}" does not exist`,
                     );
-                requireAttribute(midModel, relation.selfInMidFieldCode, `${path}.selfInMidFieldCode`);
+                requireAttribute(
+                    midModel,
+                    relation.selfInMidFieldCode,
+                    `${path}.selfInMidFieldCode`,
+                );
                 requireAttribute(midModel, relation.refInMidFieldCode, `${path}.refInMidFieldCode`);
             }
         });
@@ -234,7 +241,10 @@ export const validateModels = (
             requireNonEmptyString(model.parentCode, `${modelPath}.parentCode`);
             const parentModel = modelsByCode.get(model.parentCode);
             if (!parentModel) {
-                fail(`${modelPath}.parentCode`, `parent model "${model.parentCode}" does not exist`);
+                fail(
+                    `${modelPath}.parentCode`,
+                    `parent model "${model.parentCode}" does not exist`,
+                );
             }
             requireAttribute(model, model.parentRefFieldCode, `${modelPath}.parentRefFieldCode`);
         } else if (model.parentRefFieldCode !== undefined) {

@@ -1,9 +1,14 @@
 import { isPlainObject } from 'lodash';
 import type { Database } from '../database';
-import { DBFieldTypeEnum } from '../enum/field-type-enum';
+import {
+    DBFieldTypeEnum,
+    SysExpansionFieldTypeEnum,
+    SysFieldTypeEnum,
+} from '../enum/field-type-enum';
 import { LliDbError } from '../error/lli-db-error';
 import type { IAction } from '../middleware-manager/types';
 import type { IAttribute, IModel } from '../types/model';
+import { toChildValueKey } from './transform';
 
 const writeActions = new Set<IAction>(['create', 'createMany', 'update', 'updateMany']);
 
@@ -62,6 +67,29 @@ export const validateStrictFieldValue = (
         return;
     }
 
+    if (attribute.type === SysFieldTypeEnum.MULTI_QUOTE) {
+        if (
+            !Array.isArray(value) ||
+            value.some((item) => typeof item !== 'string' || item.length === 0)
+        ) {
+            fail(model, field, 'expected an array of non-empty reference ids');
+        }
+        return;
+    }
+    if (
+        attribute.type === SysExpansionFieldTypeEnum.JSON_ARRAY ||
+        attribute.type === SysExpansionFieldTypeEnum.MULTI_SELECT
+    ) {
+        if (!Array.isArray(value)) fail(model, field, 'expected an array');
+        validateJsonValue(value, model, field);
+        return;
+    }
+    if (attribute.type === SysExpansionFieldTypeEnum.JSON_OBJECT) {
+        if (!isPlainObject(value)) fail(model, field, 'expected a JSON object');
+        validateJsonValue(value, model, field);
+        return;
+    }
+
     const base = db.fieldTypeManager.getBaseFieldType(attribute.type);
     switch (base.dbFiledType) {
         case DBFieldTypeEnum.VARCHAR:
@@ -115,11 +143,22 @@ export const validateStrictFieldValue = (
     }
 };
 
+interface IValidateObjectOptions {
+    allowedManagedFields?: Set<string>;
+    allowedExtraFields?: Set<string>;
+    ignoredRequiredFields?: Set<string>;
+}
+
+const isImplicitlyGenerated = (attribute: IAttribute) =>
+    attribute.type === SysExpansionFieldTypeEnum.UID ||
+    attribute.type === SysExpansionFieldTypeEnum.REVISION;
+
 const validateObject = (
     db: Database,
     model: IModel,
     action: 'create' | 'update',
     data: unknown,
+    options: IValidateObjectOptions = {},
 ) => {
     if (!isPlainObject(data)) {
         throw new LliDbError('data must be an object', 'LLI40020', {
@@ -140,10 +179,16 @@ const validateObject = (
     for (const key of Object.keys(record)) {
         const attribute = model.attributes[key];
         if (!attribute) {
-            if (!childKeys.has(key) && rejectUnknown) fail(model, key, 'unknown field');
+            if (!childKeys.has(key) && !options.allowedExtraFields?.has(key) && rejectUnknown) {
+                fail(model, key, 'unknown field');
+            }
             continue;
         }
-        if (strict && (attribute.readonly || attribute.generated)) {
+        if (
+            strict &&
+            !options.allowedManagedFields?.has(key) &&
+            (attribute.readonly || attribute.generated || isImplicitlyGenerated(attribute))
+        ) {
             fail(model, key, 'field is managed by the database');
         }
         if (strict) validateStrictFieldValue(db, model, key, attribute, record[key]);
@@ -155,10 +200,45 @@ const validateObject = (
                 attribute.required &&
                 attribute.default === undefined &&
                 !attribute.generated &&
+                !isImplicitlyGenerated(attribute) &&
+                !options.ignoredRequiredFields?.has(key) &&
                 record[key] === undefined
             ) {
                 fail(model, key, 'required field is missing');
             }
+        }
+    }
+
+    if (strict) {
+        for (const childCode of model.childCodes ?? []) {
+            const childKey = toChildValueKey(childCode);
+            const childData = record[childKey];
+            if (childData === undefined) continue;
+            if (!Array.isArray(childData)) fail(model, childKey, 'expected an array');
+            const childModel = db.modelStore.get(childCode);
+            (childData as unknown[]).forEach((item) => {
+                if (!isPlainObject(item)) fail(childModel, 'data', 'expected an object');
+                const operation = (item as Record<string, unknown>).__op;
+                if (
+                    operation !== undefined &&
+                    operation !== 'create' &&
+                    operation !== 'update' &&
+                    operation !== 'delete'
+                ) {
+                    fail(childModel, '__op', 'expected create, update, or delete');
+                }
+                const isExisting = operation === 'update' || operation === 'delete';
+                if (isExisting && typeof (item as Record<string, unknown>).id !== 'string') {
+                    fail(childModel, 'id', 'expected an id for update or delete');
+                }
+                validateObject(db, childModel, isExisting ? 'update' : 'create', item, {
+                    allowedManagedFields: isExisting ? new Set(['id']) : undefined,
+                    allowedExtraFields: new Set(['__op']),
+                    ignoredRequiredFields: childModel.parentRefFieldCode
+                        ? new Set([childModel.parentRefFieldCode])
+                        : undefined,
+                });
+            });
         }
     }
 };

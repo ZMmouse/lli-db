@@ -116,7 +116,9 @@ describe('migration planning and operational safety', () => {
         try {
             await migrator.syncAll();
             db.modelStore.add(retainedModel);
-            const currentModels = db.modelStore.getModels().filter((model) => model.code !== 'planTest');
+            const currentModels = db.modelStore
+                .getModels()
+                .filter((model) => model.code !== 'planTest');
             const previousModels = await migrator.getPreBootStrapModels();
             const plan = buildMigrationPlan(currentModels, previousModels);
 
@@ -156,8 +158,9 @@ describe('migration planning and operational safety', () => {
         wrapSync(secondMigrator);
 
         try {
-            await expect(Promise.all([firstMigrator.syncAll(), secondMigrator.syncAll()])).resolves
-                .toEqual([true, true]);
+            await expect(
+                Promise.all([firstMigrator.syncAll(), secondMigrator.syncAll()]),
+            ).resolves.toEqual([true, true]);
             expect(maximumActive).toBe(1);
             const rows = await firstDb.knex('lli_model_record').where({ code: 'lliModelRecord' });
             expect(rows).toHaveLength(1);
@@ -165,6 +168,81 @@ describe('migration planning and operational safety', () => {
             await firstDb.knex.destroy();
             await secondDb.knex.destroy();
             rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    test('migrates revision on with existing rows and treats removing it as destructive', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'lli-db-revision-migration-'));
+        const filename = join(directory, 'revision.sqlite3');
+        const revisionModel = (useRevision: boolean): IModel => ({
+            code: 'revisionMigration',
+            name: 'revision migration',
+            tableName: 'revision_migration',
+            useRevision,
+            attributes: {
+                title: {
+                    code: 'title',
+                    name: 'title',
+                    columnName: 'title',
+                    type: SysFieldTypeEnum.TEXT,
+                },
+            },
+        });
+        const first = createDatabase(filename, revisionModel(false));
+        await new ModelTableMigrator(first).syncAll();
+        await first.knex('revision_migration').insert({ id: 'old', title: 'old row' });
+        await first.close();
+
+        const second = createDatabase(filename, revisionModel(true));
+        try {
+            await new ModelTableMigrator(second).syncAll();
+            await expect(
+                second.knex('revision_migration').where({ id: 'old' }).first(),
+            ).resolves.toMatchObject({ revision: 1 });
+        } finally {
+            await second.close();
+        }
+
+        const third = createDatabase(filename, revisionModel(false));
+        try {
+            const plan = await new ModelTableMigrator(third).dryRun();
+            expect(plan).toMatchObject({ requiresBackup: true });
+            expect(plan.operations).toContainEqual(
+                expect.objectContaining({
+                    type: 'dropColumn',
+                    target: 'revision',
+                    destructive: true,
+                }),
+            );
+        } finally {
+            await third.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    test('rolls back an added required column when stored-data validation fails', async () => {
+        const db = createDatabase(':memory:', createModel(1));
+        const migrator = new ModelTableMigrator(db);
+        try {
+            await migrator.syncAll();
+            await db.knex('plan_test').insert({ id: 'existing', title: 'row' });
+            const upgraded = createModel(1);
+            upgraded.attributes.score = {
+                code: 'score',
+                name: 'score',
+                columnName: 'score',
+                type: SysFieldTypeEnum.INT,
+                required: true,
+                default: 'invalid-integer' as never,
+            };
+            db.modelStore.add(upgraded);
+
+            await expect(migrator.syncAll({ validateStoredData: true })).rejects.toMatchObject({
+                code: 'LLI40020',
+            });
+            await expect(db.knex.schema.hasColumn('plan_test', 'score')).resolves.toBe(false);
+        } finally {
+            await db.close();
         }
     });
 });

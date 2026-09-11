@@ -1,9 +1,4 @@
-import {
-    Database,
-    ModelTableMigrator,
-    SysExpansionFieldTypeEnum,
-    SysFieldTypeEnum,
-} from '../libs';
+import { Database, ModelTableMigrator, SysExpansionFieldTypeEnum, SysFieldTypeEnum } from '../libs';
 import type { IModel } from '../libs';
 
 const revisionModel: IModel = {
@@ -48,9 +43,11 @@ describe('revision optimistic concurrency', () => {
                 'int',
             );
 
-            const created = await db.query<{ id: string; revision: number }>('revisionRecord').create({
-                data: { title: 'created', revision: 99 },
-            });
+            const created = await db
+                .query<{ id: string; revision: number }>('revisionRecord')
+                .create({
+                    data: { title: 'created', revision: 99 },
+                });
             expect(created.revision).toBe(1);
 
             const updated = await db.query<{ revision: number }>('revisionRecord').update({
@@ -94,9 +91,11 @@ describe('revision optimistic concurrency', () => {
     test('atomically compares and increments revision', async () => {
         const db = await createDatabase();
         try {
-            const created = await db.query<{ id: string; revision: number }>('revisionRecord').create({
-                data: { title: 'created' },
-            });
+            const created = await db
+                .query<{ id: string; revision: number }>('revisionRecord')
+                .create({
+                    data: { title: 'created' },
+                });
 
             const updated = await db.query<Record<string, unknown>>('revisionRecord').update({
                 where: { id: created.id },
@@ -190,14 +189,61 @@ describe('revision optimistic concurrency', () => {
         }
     });
 
-    test('rejects invalid revision configurations and parameters', async () => {
-        expect(() =>
-            new Database({
-                connection: undefined as never,
-                models: [{ ...revisionModel, useLogicDelete: true }],
-            }),
-        ).toThrow('useRevision cannot be combined with useLogicDelete');
+    test('supports atomic logical delete with revision', async () => {
+        const db = new Database({
+            connection: {
+                client: 'better-sqlite3',
+                connection: { filename: ':memory:' },
+                useNullAsDefault: true,
+            },
+            models: [
+                {
+                    ...revisionModel,
+                    attributes: { ...revisionModel.attributes },
+                    useLogicDelete: true,
+                },
+            ],
+            modelConfig: {
+                userModelCode: 'revisionRecord',
+                userModelDisplayCode: 'title',
+            },
+            validation: { mode: 'strict' },
+        });
+        await new ModelTableMigrator(db).syncAll();
+        try {
+            const created = await db.query<{ id: string }>('revisionRecord').create({
+                data: { title: 'created' },
+            });
+            await expect(
+                db.query('revisionRecord').delete({
+                    where: { id: created.id },
+                    expectedRevision: 2,
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40901' });
+            await expect(
+                db.query('revisionRecord').delete({
+                    where: { id: created.id },
+                    expectedRevision: 1,
+                }),
+            ).resolves.toBe(1);
+            const raw = await db.knex('revision_record').where({ id: created.id }).first();
+            expect(raw).toMatchObject({ deleted: 1, revision: 2 });
 
+            const lastWriteWins = await db.query<{ id: string }>('revisionRecord').create({
+                data: { title: 'last-write-wins' },
+            });
+            await expect(
+                db.query('revisionRecord').delete({ where: { id: lastWriteWins.id } }),
+            ).resolves.toBe(1);
+            await expect(
+                db.knex('revision_record').where({ id: lastWriteWins.id }).first(),
+            ).resolves.toMatchObject({ deleted: 1, revision: 2 });
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('rejects invalid revision parameters', async () => {
         const db = await createDatabase();
         try {
             await expect(

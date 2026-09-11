@@ -36,18 +36,18 @@ const getExpectedRevisionId = (code: string, model: IModel, params: IParams) => 
     const where = params.where;
     const id = isPlainObject(where) ? (where as Record<string, unknown>).id : undefined;
     if (typeof id !== 'string' || id.length === 0 || Object.keys(where as object).length !== 1) {
-        throw new LliDbError('expectedRevision requires where to contain only a scalar id', 'LLI400', {
-            modelCode: code,
-        });
+        throw new LliDbError(
+            'expectedRevision requires where to contain only a scalar id',
+            'LLI400',
+            {
+                modelCode: code,
+            },
+        );
     }
     return id;
 };
 
-const throwRevisionConflict = (
-    db: Database,
-    code: string,
-    expectedRevision: number,
-): never => {
+const throwRevisionConflict = (db: Database, code: string, expectedRevision: number): never => {
     db.diagnostics.emit({
         type: 'revision:conflict',
         modelCode: code,
@@ -268,7 +268,8 @@ export class EntityManager {
                 if (hasRevisionField(model)) {
                     query = query.increment('revision');
                 }
-                const updateCount = await query.execute<number>();
+                const updatedRows = await query.returning('*').execute<IAnyObject[]>();
+                const updateCount = updatedRows.length;
                 if (ctx.params.expectedRevision !== undefined && updateCount !== 1) {
                     throwRevisionConflict(this.db, code, ctx.params.expectedRevision);
                 }
@@ -292,11 +293,14 @@ export class EntityManager {
                     { transaction: trx },
                 );
 
-                ctx.result = await this.findOne(code, {
-                    where: { id: row.id },
-                    select: ctx.params.select,
-                    populate: ctx.params.populate,
-                });
+                ctx.result =
+                    ctx.params.select || ctx.params.populate
+                        ? await this.findOne(code, {
+                              where: { id: row.id },
+                              select: ctx.params.select,
+                              populate: ctx.params.populate,
+                          })
+                        : (updatedRows[0] ?? null);
             });
         });
     }
@@ -358,10 +362,13 @@ export class EntityManager {
         cloneId: string,
         params: IParams & { cloneChild?: boolean } = {},
     ): Promise<T> {
-
-        const row = await this.createQueryBuilder(code).select('*').where({
-            id: cloneId,
-        }).first().execute();
+        const row = await this.createQueryBuilder(code)
+            .select('*')
+            .where({
+                id: cloneId,
+            })
+            .first()
+            .execute();
 
         if (!row) {
             LliDbError.throw400(`id为${cloneId}的数据不存在`);
@@ -427,14 +434,20 @@ export class EntityManager {
 
             return this.db.transaction(async ({ trx }) => {
                 if (expectedRevisionId !== undefined) {
-                    const res = await this.createQueryBuilder(code)
+                    let query = this.createQueryBuilder(code)
                         .where({
                             id: expectedRevisionId,
                             revision: ctx.params.expectedRevision,
                         })
-                        .delete()
-                        .transacting(trx)
-                        .execute<number>();
+                        .transacting(trx);
+                    if (model.useLogicDelete) {
+                        query = query
+                            .update({ deleted: true, deletedAt: new Date() })
+                            .increment('revision');
+                    } else {
+                        query = query.delete();
+                    }
+                    const res = await query.execute<number>();
                     if (res !== 1) {
                         throwRevisionConflict(this.db, code, ctx.params.expectedRevision);
                     }

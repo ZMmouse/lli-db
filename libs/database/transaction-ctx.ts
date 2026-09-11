@@ -34,12 +34,14 @@ export const transactionCtx = {
     async run<TResult>(
         trx: Knex.Transaction,
         cb: () => Promise<TResult> | TResult,
+        options: { readOnly?: boolean } = {},
     ): Promise<TResult> {
         const store = storage.getStore();
 
         return storage.run(
             {
                 trx,
+                readOnly: options.readOnly ?? store?.readOnly ?? false,
                 commitCallbacks: store?.commitCallbacks || [],
                 rollbackCallbacks: store?.rollbackCallbacks || [],
             },
@@ -50,6 +52,10 @@ export const transactionCtx = {
     get() {
         const store = storage.getStore();
         return store?.trx;
+    },
+
+    isReadOnly() {
+        return storage.getStore()?.readOnly === true;
     },
 
     async commit(trx: Knex.Transaction) {

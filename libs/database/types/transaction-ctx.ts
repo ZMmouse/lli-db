@@ -22,6 +22,7 @@ export interface ITransactionObject {
 
 export interface ITransactionStore {
     trx: Knex.Transaction | null;
+    readOnly: boolean;
     commitCallbacks: ITransactionHook[];
     rollbackCallbacks: ITransactionHook[];
 }

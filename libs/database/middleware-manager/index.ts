@@ -44,6 +44,15 @@ export class MiddlewareManager {
         params: any,
         coreRunner: (ctx: IMiddlewareCtx) => Promise<any>,
     ) {
+        return this.db.runOperation(() => this.runInternal(action, modelCode, params, coreRunner));
+    }
+
+    private async runInternal(
+        action: IAction,
+        modelCode: string,
+        params: any,
+        coreRunner: (ctx: IMiddlewareCtx) => Promise<any>,
+    ) {
         const model = this.db.modelStore.get(modelCode);
         params = cloneDeep(normalizeQueryParams(params));
         const ctx: IMiddlewareCtx = {

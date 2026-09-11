@@ -64,7 +64,7 @@ const treeModels: IModel[] = [
     },
 ];
 
-const createDatabase = async (models: IModel[]) => {
+const createDatabase = async (models: IModel[], strict = false) => {
     const db = new Database({
         connection: {
             client: 'better-sqlite3',
@@ -73,12 +73,27 @@ const createDatabase = async (models: IModel[]) => {
             pool: { min: 1, max: 1 },
         },
         models,
+        validation: strict ? { mode: 'strict' } : undefined,
     });
     await new ModelTableMigrator(db).syncAll();
     return db;
 };
 
 describe('relation writes', () => {
+    test('strict mode accepts id arrays for multi-quote fields', async () => {
+        const db = await createDatabase(relationModels(), true);
+        try {
+            await expect(
+                db.query('article').create({ data: { tags: ['tag-1', 'tag-2'] } }),
+            ).resolves.toBeDefined();
+            await expect(
+                db.query('article').create({ data: { tags: 'tag-1' } }),
+            ).rejects.toMatchObject({ code: 'LLI40020' });
+        } finally {
+            await db.close();
+        }
+    });
+
     test('single create with only a multi-quote field writes the intermediate rows', async () => {
         const db = await createDatabase(relationModels());
 
@@ -117,6 +132,32 @@ describe('relation writes', () => {
         } finally {
             errorLog.mockRestore();
             await db.knex.destroy();
+        }
+    });
+
+    test('relation failure rolls back a revision increment and main-row update', async () => {
+        const models = relationModels(true);
+        models[0].useRevision = true;
+        const db = await createDatabase(models, true);
+        const errorLog = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        try {
+            const article = await db.query<{ id: string }>('article').create({
+                data: { title: 'before' },
+            });
+            await expect(
+                db.query('article').update({
+                    where: { id: article.id },
+                    expectedRevision: 1,
+                    data: { title: 'after', tags: ['tag-1'] },
+                }),
+            ).rejects.toMatchObject({ code: 'SQLITE_CONSTRAINT_NOTNULL' });
+            await expect(
+                db.knex('article').where({ id: article.id }).first(),
+            ).resolves.toMatchObject({ title: 'before', revision: 1 });
+            await expect(db.knex('article_tag')).resolves.toHaveLength(0);
+        } finally {
+            errorLog.mockRestore();
+            await db.close();
         }
     });
 });

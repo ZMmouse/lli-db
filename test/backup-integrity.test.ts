@@ -50,10 +50,43 @@ describe('SQLite backup and integrity operations', () => {
         const { db, directory } = await createDatabase(events);
         const destination = join(directory, 'backup.sqlite3');
         try {
-            const [result] = await Promise.all([
-                db.backup({ destination, verify: true }),
-                db.query('backupRecord').create({ data: { title: 'concurrent-write' } }),
-            ]);
+            await db.knex('backup_record').insert(
+                Array.from({ length: 500 }, (_, index) => ({
+                    id: `bulk-${index}`,
+                    title: `${index}-${'x'.repeat(4_000)}`,
+                })),
+            );
+            const connection = await db.knex.client.acquireConnection();
+            const originalBackup = connection.backup.bind(connection);
+            let progressCalls = 0;
+            let copyStarted!: () => void;
+            const copyStartedPromise = new Promise<void>((resolve) => (copyStarted = resolve));
+            const backupMethod = jest
+                .spyOn(connection, 'backup')
+                .mockImplementation((...args: unknown[]) =>
+                    originalBackup(String(args[0]), {
+                        progress: () => {
+                            progressCalls += 1;
+                            copyStarted();
+                            return 1;
+                        },
+                    }),
+                );
+            const acquire = jest
+                .spyOn(db.knex.client, 'acquireConnection')
+                .mockResolvedValueOnce(connection);
+            const backupPromise = db.backup({ destination, verify: true });
+            await copyStartedPromise;
+            let backupFinished = false;
+            void backupPromise.then(() => {
+                backupFinished = true;
+            });
+            await db.query('backupRecord').create({ data: { title: 'concurrent-write' } });
+            expect(backupFinished).toBe(false);
+            const result = await backupPromise;
+            expect(progressCalls).toBeGreaterThan(1);
+            acquire.mockRestore();
+            backupMethod.mockRestore();
             expect(result).toMatchObject({ destination, verified: true });
             expect(result.size).toBeGreaterThan(0);
             expect(events.map((event) => event.type)).toEqual(
@@ -68,9 +101,14 @@ describe('SQLite backup and integrity operations', () => {
             try {
                 const rows = await backup('backup_record').select('title');
                 expect(rows).toContainEqual({ title: 'preserved' });
-                expect(rows.every((row) => ['preserved', 'concurrent-write'].includes(row.title))).toBe(
-                    true,
-                );
+                expect(
+                    rows.every(
+                        (row) =>
+                            row.title === 'preserved' ||
+                            row.title === 'concurrent-write' ||
+                            /^\d+-x+$/.test(row.title),
+                    ),
+                ).toBe(true);
             } finally {
                 await backup.destroy();
             }
@@ -127,12 +165,14 @@ describe('SQLite backup and integrity operations', () => {
                 throw new Error('simulated backup failure');
             },
         });
-        const release = jest.spyOn(db.knex.client, 'releaseConnection').mockResolvedValue(undefined);
+        const release = jest
+            .spyOn(db.knex.client, 'releaseConnection')
+            .mockResolvedValue(undefined);
         try {
             await expect(db.backup({ destination })).rejects.toMatchObject({ code: 'LLI50020' });
-            expect(readdirSync(directory).some((name) => name.startsWith('failed.sqlite3.tmp-'))).toBe(
-                false,
-            );
+            expect(
+                readdirSync(directory).some((name) => name.startsWith('failed.sqlite3.tmp-')),
+            ).toBe(false);
         } finally {
             acquire.mockRestore();
             release.mockRestore();
@@ -156,7 +196,7 @@ describe('SQLite backup and integrity operations', () => {
             models: [model],
         });
         try {
-            await expect(corrupted.integrityCheck()).rejects.toBeDefined();
+            await expect(corrupted.integrityCheck()).rejects.toMatchObject({ code: 'LLI50020' });
         } finally {
             await corrupted.close();
             rmSync(directory, { recursive: true, force: true });

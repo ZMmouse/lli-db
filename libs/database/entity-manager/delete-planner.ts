@@ -19,23 +19,20 @@ export class DeletePlanner {
         return model.useLogicDelete;
     }
 
-    deleteRows(
-        code: string,
-        ids: string[],
-        fieldCode = 'id',
-        transaction?: Knex.Transaction,
-    ) {
+    deleteRows(code: string, ids: string[], fieldCode = 'id', transaction?: Knex.Transaction) {
         const query = this.createQueryBuilder(code)
             .where({ [fieldCode]: { in: ids } })
             .transacting(transaction);
 
         if (this.checkUseLogicDelete(code)) {
-            return query
-                .update({
-                    deleted: true,
-                    deletedAt: new Date(),
-                })
-                .execute();
+            const updateQuery = query.update({
+                deleted: true,
+                deletedAt: new Date(),
+            });
+            if (this.db.modelStore.get(code).useRevision) {
+                updateQuery.increment('revision');
+            }
+            return updateQuery.execute();
         }
         return query.delete().execute();
     }
