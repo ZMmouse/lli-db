@@ -92,7 +92,9 @@ describe('release supply-chain controls', () => {
         expect(publishWorkflow).toContain('environment: npm');
         expect(publishWorkflow).toContain('runtime: node@22');
         expect(publishWorkflow).toContain('workflow_dispatch:');
-        expect(publishWorkflow).toContain('ref: ${{ inputs.tag || github.ref }}');
+        expect(publishWorkflow).toContain('requested_ref="${{ inputs.tag || github.ref_name }}"');
+        expect(publishWorkflow).toContain('release_ref="${requested_ref%%+publish.*}"');
+        expect(publishWorkflow).toContain('ref: ${{ steps.release-ref.outputs.ref }}');
         expect(publishWorkflow).toContain('npm install --global npm@11.19.1');
         expect(publishWorkflow).toContain('npm run release:verify');
         expect(publishWorkflow).toContain('npm publish --access public');
