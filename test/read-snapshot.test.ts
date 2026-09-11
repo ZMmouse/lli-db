@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { Database, ModelTableMigrator, SysFieldTypeEnum } from '../libs';
 import type { IDiagnosticEvent, IModel } from '../libs';
 
@@ -348,6 +349,57 @@ describe('SQLite read snapshots', () => {
             await snapshot.close();
             const released = await db.knex.raw('PRAGMA wal_checkpoint(TRUNCATE)');
             expect(released[0]).toMatchObject({ busy: 0, log: 0, checkpointed: 0 });
+        } finally {
+            await db.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    test('reopens safely after a process exits with an active snapshot', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'lli-db-snapshot-crash-'));
+        const filename = join(directory, 'data.sqlite3');
+        const childScript = `
+            const { Database, ModelTableMigrator, SysFieldTypeEnum } = require('./libs');
+            const model = {
+                code: 'snapshotRecord', name: 'snapshot record', tableName: 'snapshot_record',
+                attributes: { rank: { code: 'rank', name: 'rank', columnName: 'rank_value',
+                    type: SysFieldTypeEnum.INT, required: true } }
+            };
+            (async () => {
+                const db = new Database({
+                    connection: { client: 'better-sqlite3', connection: { filename: process.argv[1] },
+                        useNullAsDefault: true, pool: { min: 1, max: 3 } },
+                    models: [model], sqlite: { journalMode: 'wal' }
+                });
+                await new ModelTableMigrator(db).syncAll();
+                await db.query('snapshotRecord').create({ data: { rank: 1 } });
+                const snapshot = await db.openReadSnapshot();
+                await snapshot.query('snapshotRecord').findMany();
+                process.exit(73);
+            })().catch((error) => { console.error(error); process.exit(74); });
+        `;
+        const child = spawnSync(
+            process.execPath,
+            ['-r', 'ts-node/register/transpile-only', '-e', childScript, filename],
+            { cwd: process.cwd(), encoding: 'utf8', timeout: 15_000 },
+        );
+        expect(child.status).toBe(73);
+
+        const db = new Database({
+            connection: {
+                client: 'better-sqlite3',
+                connection: { filename },
+                useNullAsDefault: true,
+            },
+            models: [model],
+            sqlite: { journalMode: 'wal' },
+        });
+        try {
+            await expect(db.query('snapshotRecord').count({})).resolves.toBe(1);
+            await expect(
+                db.query('snapshotRecord').create({ data: { rank: 2 } }),
+            ).resolves.toMatchObject({ rank: 2 });
+            await expect(db.integrityCheck()).resolves.toMatchObject({ ok: true });
         } finally {
             await db.close();
             rmSync(directory, { recursive: true, force: true });
