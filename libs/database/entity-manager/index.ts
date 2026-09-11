@@ -12,6 +12,53 @@ import { LliDbError } from '../error/lli-db-error';
 import { DeletePlanner } from './delete-planner';
 import { RelationWriter } from './relation-writer';
 import { ChildWriter } from './child-writer';
+import type { ICursorPageParams } from '../types/query';
+import type { ICursorPageResult } from '../types/i-result';
+import { findCursorPage } from './cursor-page';
+import { SysExpansionFieldTypeEnum } from '../enum/field-type-enum';
+import type { IModel } from '../types/model';
+
+const hasRevisionField = (model: IModel) =>
+    model.attributes.revision?.type === SysExpansionFieldTypeEnum.REVISION;
+
+const getExpectedRevisionId = (code: string, model: IModel, params: IParams) => {
+    if (params.expectedRevision === undefined) return undefined;
+    if (!hasRevisionField(model)) {
+        throw new LliDbError(`Model ${code} does not enable revision`, 'LLI400');
+    }
+    if (!Number.isSafeInteger(params.expectedRevision) || params.expectedRevision < 1) {
+        throw new LliDbError('expectedRevision must be a positive safe integer', 'LLI40020', {
+            modelCode: code,
+            fieldCode: 'revision',
+            reason: 'expected a positive safe integer',
+        });
+    }
+    const where = params.where;
+    const id = isPlainObject(where) ? (where as Record<string, unknown>).id : undefined;
+    if (typeof id !== 'string' || id.length === 0 || Object.keys(where as object).length !== 1) {
+        throw new LliDbError('expectedRevision requires where to contain only a scalar id', 'LLI400', {
+            modelCode: code,
+        });
+    }
+    return id;
+};
+
+const throwRevisionConflict = (
+    db: Database,
+    code: string,
+    expectedRevision: number,
+): never => {
+    db.diagnostics.emit({
+        type: 'revision:conflict',
+        modelCode: code,
+        operation: 'compare-and-swap',
+    });
+    throw new LliDbError('Optimistic revision conflict', 'LLI40901', {
+        modelCode: code,
+        fieldCode: 'revision',
+        expectedRevision,
+    });
+};
 
 // 创建select
 export const createDeleteSelect = (select: ISelect) => {
@@ -180,6 +227,7 @@ export class EntityManager {
             const model = this.db.modelStore.get(code);
 
             const { where, data } = ctx.params;
+            const expectedRevisionId = getExpectedRevisionId(code, model, ctx.params);
 
             if (!isPlainObject(data)) {
                 LliDbError.throw400('data必须是一个对象');
@@ -190,27 +238,40 @@ export class EntityManager {
 
             const updateData = processData(this.db, data, model);
 
-            if (isEmpty(updateData)) {
+            if (isEmpty(updateData) && !hasRevisionField(model)) {
                 ctx.result = null;
                 return;
             }
             return this.db.transaction(async ({ trx }) => {
-                const row = await this.createQueryBuilder(code)
-                    .select('*')
-                    .where(where)
-                    .first()
-                    .transacting(trx)
-                    .execute();
+                const row =
+                    expectedRevisionId === undefined
+                        ? await this.createQueryBuilder(code)
+                              .select('*')
+                              .where(where)
+                              .first()
+                              .transacting(trx)
+                              .execute()
+                        : { id: expectedRevisionId };
                 if (!row || isEmpty(row)) {
                     ctx.result = null;
                     return;
                 }
 
-                await this.createQueryBuilder(code)
-                    .where({ id: row.id })
-                    .update(updateData)
-                    .transacting(trx)
-                    .execute();
+                const writeWhere: IAnyObject = { id: row.id };
+                if (ctx.params.expectedRevision !== undefined) {
+                    writeWhere.revision = ctx.params.expectedRevision;
+                }
+                let query = this.createQueryBuilder(code).where(writeWhere).transacting(trx);
+                if (!isEmpty(updateData)) {
+                    query = query.update(updateData);
+                }
+                if (hasRevisionField(model)) {
+                    query = query.increment('revision');
+                }
+                const updateCount = await query.execute<number>();
+                if (ctx.params.expectedRevision !== undefined && updateCount !== 1) {
+                    throwRevisionConflict(this.db, code, ctx.params.expectedRevision);
+                }
 
                 await this.createRelations(
                     code,
@@ -357,12 +418,31 @@ export class EntityManager {
     async delete(code: string, params: IParams): Promise<number> {
         return this.db.middlewareManager.run('delete', code, params, async (ctx) => {
             const { where, select, populate } = ctx.params;
+            const model = this.db.modelStore.get(code);
+            const expectedRevisionId = getExpectedRevisionId(code, model, ctx.params);
 
             if (isEmpty(where)) {
                 LliDbError.throw400('删除数据时where不能为空');
             }
 
             return this.db.transaction(async ({ trx }) => {
+                if (expectedRevisionId !== undefined) {
+                    const res = await this.createQueryBuilder(code)
+                        .where({
+                            id: expectedRevisionId,
+                            revision: ctx.params.expectedRevision,
+                        })
+                        .delete()
+                        .transacting(trx)
+                        .execute<number>();
+                    if (res !== 1) {
+                        throwRevisionConflict(this.db, code, ctx.params.expectedRevision);
+                    }
+                    await this.deleteRelations(code, [expectedRevisionId], { transaction: trx });
+                    await this.deleteChildMany(code, [expectedRevisionId], { transaction: trx });
+                    ctx.result = res;
+                    return;
+                }
                 const row = await this.createQueryBuilder(code)
                     .init({
                         where,
@@ -456,6 +536,13 @@ export class EntityManager {
         { transaction }: { transaction: Knex.Transaction },
     ) {
         return this.deletePlanner.deleteChildMany(code, ids, transaction);
+    }
+
+    findCursorPage<T = IAnyObject>(
+        code: string,
+        params: ICursorPageParams,
+    ): Promise<ICursorPageResult<T>> {
+        return findCursorPage<T>(this.db, code, params);
     }
 
     async createChildMany(

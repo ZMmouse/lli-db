@@ -1,8 +1,8 @@
 import { Knex } from 'knex';
 import type { Database } from '../database';
-import type { IParams, IUpdateManyParams } from '../types/query';
+import type { ICursorPageParams, IParams, IUpdateManyParams } from '../types/query';
 import { IAnyObject } from '../types/any-object';
-import type { IPageResult, IUpdateManyResult } from '../types/i-result';
+import type { ICursorPageResult, IPageResult, IUpdateManyResult } from '../types/i-result';
 
 export class EntityRepository<T = IAnyObject> {
     private readonly db;
@@ -23,6 +23,10 @@ export class EntityRepository<T = IAnyObject> {
 
     queryPage(params: IParams = {}): Promise<IPageResult<T>> {
         return this.db.entityManager.queryPage<T>(this.code, params);
+    }
+
+    findCursorPage(params: ICursorPageParams): Promise<ICursorPageResult<T>> {
+        return this.db.entityManager.findCursorPage<T>(this.code, params);
     }
 
     count(params: IParams, fieldCode = 'id') {
