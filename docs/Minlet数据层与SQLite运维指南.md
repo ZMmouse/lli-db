@@ -139,12 +139,13 @@ const report = await db.validateStoredData({
 
 | lli-db     | Minlet                 |
 | ---------- | ---------------------- |
-| `LLI400`   | 参数或 Schema 错误     |
-| `LLI40901` | `RESOURCE_CONFLICT`    |
-| `LLI41000` | Database 已关闭        |
-| `LLI41001` | Snapshot 已关闭或过期  |
-| `LLI42901` | Snapshot 数量达到上限  |
-| `LLI50020` | 备份或迁移数据校验失败 |
+| `LLI400`   | 参数或 Schema 错误                 |
+| `LLI40020` | 严格字段或迁移存量数据校验失败     |
+| `LLI40901` | `RESOURCE_CONFLICT`                |
+| `LLI41000` | Database 已关闭                    |
+| `LLI41001` | Snapshot 已关闭或过期              |
+| `LLI42901` | Snapshot 数量达到上限              |
+| `LLI50020` | SQLite 备份或完整性检查失败         |
 
 ## 8. Electron 与 native ABI
 

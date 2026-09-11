@@ -6,7 +6,9 @@
 
 适用范围 `@llii/db 0.0.16` 之后的能力演进
 
-实施结果：审计指出的仓库内 P0 至 P6 缺口已重新打开并修复，包括 ReadSnapshot 的只读边界、strict 关系/子记录/UID、cursor 位置值精确类型、close drain、快照指标、SQLite pragma 状态查询、WAL/query-only 防线、稳定 integrity 错误码、revision 与逻辑删除、原子 update returning、独立乐观更新类型以及相应迁移/并发/回滚测试。后续复查又补齐了关闭期间的内部重入拒绝、并发快照名额预留、`expectedRevision` 的 mutation-only 契约、快照回滚失败的保留/重试/诊断语义、`returning()` 的前置参数校验、嵌套子记录的逻辑删除与 revision 语义、默认值严格校验、Windows SQLite 迁移锁路径归一化、快照打开清理错误诊断，以及手动事务关闭边界测试。revision 继续作为 `SysExpansionFieldTypeEnum.REVISION` 扩展字段，由写入执行器完成 compare-and-swap。当前等价 `npm run verify` 的各项检查均通过，共 31 个通过的测试套件、264 个通过的测试；另有 1 个 PostgreSQL 集成套件、2 个测试因未配置 `LLI_DB_TEST_PG_URL` 而跳过。Node tarball 消费端验证通过。Electron 最小 ABI smoke 工程和执行命令已经加入，但目标 Electron 可执行文件尚未提供，因此不能把“脚本已实现”写成“目标 ABI 已通过”。
+实施结果：审计指出的仓库内 P0 至 P6 缺口已重新打开并修复，包括 ReadSnapshot 的只读边界、strict 关系/子记录/UID、cursor 位置值精确类型、close drain、快照指标、SQLite pragma 状态查询、WAL/query-only 防线、稳定 integrity 错误码、revision 与逻辑删除、原子 update returning、独立乐观更新类型以及相应迁移/并发/回滚测试。后续复查又补齐了关闭期间的内部重入拒绝、并发快照名额预留、`expectedRevision` 的 mutation-only 契约、快照回滚失败的保留/重试/诊断语义、`returning()` 的前置参数校验、嵌套子记录的逻辑删除与 revision 语义、默认值严格校验、Windows SQLite 迁移锁路径归一化、快照打开清理错误诊断，以及手动事务关闭边界测试。revision 继续作为 `SysExpansionFieldTypeEnum.REVISION` 扩展字段，由写入执行器完成 compare-and-swap。当前等价 `npm run verify` 的各项检查均通过，共 31 个通过的测试套件、274 个通过的测试；另有 1 个 PostgreSQL 集成套件、2 个测试因未配置 `LLI_DB_TEST_PG_URL` 而跳过。Node tarball 消费端验证通过。Electron 最小 ABI smoke 工程和执行命令已经加入，但目标 Electron 可执行文件尚未提供，因此不能把“脚本已实现”写成“目标 ABI 已通过”。
+
+2026-09-11 复查继续补齐了子记录 update 的父级归属校验、子记录 revision 递增、纯关系与纯子记录更新、legacy 展示模式下的无损 DATETIME cursor、strict 模式默认 ISO UTC 毫秒契约、快照打开失败事务的关闭重试，以及备份目标的原子防覆盖。当前完整验证为 31 个通过的测试套件、274 个通过的测试；PostgreSQL 和 Electron 外部环境验证仍不计入完成结论。
 
 ## 1. 计划目标
 
@@ -518,7 +520,7 @@ const result = await db.backup({
 接口要求如下。
 
 - 默认禁止覆盖已有文件。
-- 目标先写入临时文件，完成后再原子改名。
+- 目标先写入同目录临时文件；默认模式通过原子 no-clobber 硬链接发布，`overwrite: true` 才执行受控替换。
 - 使用 SQLite 官方可用的在线备份能力，不能在活动连接存在时直接复制单个 db 文件。
 - verify 为 true 时，在隔离连接中执行完整性检查。
 - 失败时清理临时文件，不修改源数据库。
@@ -541,6 +543,7 @@ lli-db 提供备份和校验原语，不直接覆盖正在使用的源数据库�
 - WAL 模式下的在线备份可以被重新打开并读取。
 - 备份时发生写入，结果仍是一个一致的数据库状态。
 - 已存在目标且 overwrite 为 false 时不修改目标。
+- 目标在备份过程中被其他进程创建时不覆盖竞态文件。
 - 人工损坏的副本不能通过完整性检查。
 - 备份失败不残留临时文件。
 - SQLite pragma 与连接池中新建连接保持一致。
@@ -693,7 +696,7 @@ Database / Repository / ReadSnapshot
 
 ### 14.1 向后兼容
 
-- [x] 现有 25 个测试套件和 175 个测试继续通过，并扩展为 31 个通过套件、256 个通过测试。
+- [x] 现有 25 个测试套件和 175 个测试继续通过，并扩展为 31 个通过套件、274 个通过测试。
 - [x] 默认 `coerce` 模式行为不变。
 - [x] 未启用 revision 的模型结构和返回值不变。
 - [x] page 和 offset API 不变。
