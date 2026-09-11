@@ -47,6 +47,7 @@ export class Database implements IDatabase {
     private readonly _middlewareManager: MiddlewareManager;
     private readonly _diagnostics: Diagnostics;
     private readonly readSnapshots = new Set<ReadSnapshot>();
+    private readonly failedSnapshotTransactions = new Set<Knex.Transaction>();
     private pendingReadSnapshots = 0;
     private autoClosedSnapshotCount = 0;
     private readonly operationContext = new AsyncLocalStorage<boolean>();
@@ -166,7 +167,12 @@ export class Database implements IDatabase {
             this.closePromise = (async () => {
                 await this.waitForOperations();
                 const results = await Promise.allSettled(
-                    Array.from(this.readSnapshots, (snapshot) => snapshot.close()),
+                    [
+                        ...Array.from(this.readSnapshots, (snapshot) => snapshot.close()),
+                        ...Array.from(this.failedSnapshotTransactions, (transaction) =>
+                            this.recoverFailedSnapshotTransaction(transaction),
+                        ),
+                    ],
                 );
                 await this._knex.destroy();
                 const failure = results.find(
@@ -180,6 +186,29 @@ export class Database implements IDatabase {
 
     openReadSnapshot(options: IReadSnapshotOptions = {}) {
         return this.runOperation(() => this.openReadSnapshotInternal(options));
+    }
+
+    private async recoverFailedSnapshotTransaction(transaction: Knex.Transaction) {
+        if (transaction.isCompleted()) {
+            this.failedSnapshotTransactions.delete(transaction);
+            return;
+        }
+        try {
+            await transaction.raw('PRAGMA query_only = OFF');
+        } catch {
+            // A successful rollback below is sufficient to release the transaction connection.
+        }
+        try {
+            await transaction.rollback();
+            this.failedSnapshotTransactions.delete(transaction);
+        } catch (error) {
+            this._diagnostics.emit({
+                type: 'snapshot:error',
+                operation: 'openReadSnapshotRecovery',
+                error: toDiagnosticError(error),
+            });
+            throw error;
+        }
     }
 
     private async openReadSnapshotInternal(options: IReadSnapshotOptions) {
@@ -259,6 +288,7 @@ export class Database implements IDatabase {
                 try {
                     await transaction.rollback();
                 } catch (cleanupError) {
+                    this.failedSnapshotTransactions.add(transaction);
                     cleanupErrors.push(
                         cleanupError instanceof Error
                             ? cleanupError

@@ -209,9 +209,10 @@ describe('SQLite read snapshots', () => {
             rollback,
             isCompleted: () => false,
         } as unknown as Knex.Transaction;
-        const originalTransaction = db.knex.transaction;
+        const knexInstance = db.knex;
+        const originalTransaction = knexInstance.transaction;
         const transactionFactory = jest.fn().mockResolvedValueOnce(transaction);
-        Object.defineProperty(db.knex, 'transaction', {
+        Object.defineProperty(knexInstance, 'transaction', {
             value: transactionFactory,
             configurable: true,
         });
@@ -240,8 +241,10 @@ describe('SQLite read snapshots', () => {
                     error: { name: 'Error' },
                 }),
             );
+            await db.close();
+            expect(rollback).toHaveBeenCalledTimes(2);
         } finally {
-            Object.defineProperty(db.knex, 'transaction', {
+            Object.defineProperty(knexInstance, 'transaction', {
                 value: originalTransaction,
                 configurable: true,
             });
