@@ -129,7 +129,7 @@ export class Database implements IDatabase {
     }
 
     close() {
-        if (this.operationContext.getStore() && !this.closePromise) {
+        if (this.operationContext.getStore()) {
             return Promise.reject(
                 new LliDbError('Database cannot be closed from an active operation', 'LLI41003'),
             );

@@ -309,6 +309,34 @@ describe('SQLite read snapshots', () => {
         rmSync(directory, { recursive: true, force: true });
     });
 
+    test('rejects operation-internal close after an external close has started', async () => {
+        const { db, directory } = await createDatabase();
+        let entered!: () => void;
+        let release!: () => void;
+        let internalCloseError: unknown;
+        const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+        const releasePromise = new Promise<void>((resolve) => (release = resolve));
+        db.middlewareManager.registerGlobalMiddleware('findMany', async (ctx, next) => {
+            entered();
+            await releasePromise;
+            try {
+                await ctx.db.close();
+            } catch (error) {
+                internalCloseError = error;
+            }
+            await next();
+        });
+
+        const queryPromise = db.query('snapshotRecord').findMany();
+        await enteredPromise;
+        const closePromise = db.close();
+        release();
+        await expect(queryPromise).resolves.toHaveLength(3);
+        await expect(closePromise).resolves.toBeUndefined();
+        expect(internalCloseError).toMatchObject({ code: 'LLI41003' });
+        rmSync(directory, { recursive: true, force: true });
+    });
+
     test('database close also drains a directly opened callback transaction', async () => {
         const { db, directory } = await createDatabase();
         let entered!: () => void;
