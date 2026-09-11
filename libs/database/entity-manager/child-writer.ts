@@ -4,6 +4,7 @@ import { LliDbError } from '../error/lli-db-error';
 import { QueryBuilder } from '../query';
 import type { IAnyObject } from '../types/any-object';
 import type { IRow } from '../types/i-row';
+import type { IWhere } from '../types/query';
 import { DeletePlanner } from './delete-planner';
 import { processData } from './process-data';
 import { RelationWriter } from './relation-writer';
@@ -19,6 +20,33 @@ export class ChildWriter {
 
     private createQueryBuilder(code: string) {
         return new QueryBuilder(this.db, code);
+    }
+
+    private async deleteChildren(
+        childCode: string,
+        parentRefFieldCode: string,
+        requests: Array<{ id: string; parentId: string }>,
+        transaction: Knex.Transaction,
+    ) {
+        if (requests.length === 0) return;
+        const childModel = this.db.modelStore.get(childCode);
+        const conditions = requests.map(({ id, parentId }) => ({
+            id,
+            [parentRefFieldCode]: parentId,
+            ...(childModel.useLogicDelete ? { deleted: { notEq: true } } : {}),
+        }));
+        const where: IWhere = conditions.length === 1 ? conditions[0] : { or: conditions };
+        const rows = await this.createQueryBuilder(childCode)
+            .select('id')
+            .where(where)
+            .transacting(transaction)
+            .execute<Array<Record<'id', string>>>();
+        const deleteIds = [...new Set(rows.map((row) => row.id))];
+        if (deleteIds.length === 0) return;
+
+        await this.deletePlanner.deleteRows(childCode, deleteIds, 'id', transaction);
+        await this.deletePlanner.deleteRelations(childCode, deleteIds, transaction);
+        await this.deletePlanner.deleteChildMany(childCode, deleteIds, transaction);
     }
 
     hasChild(data: IAnyObject, code: string) {
@@ -41,25 +69,26 @@ export class ChildWriter {
                     continue;
                 }
 
-                const deleteIds: string[] = [];
+                const deleteRequests: Array<{ id: string; parentId: string }> = [];
                 const operationData: IRow[] = [];
                 for (const item of childData as IRow[]) {
                     item[childModel.parentRefFieldCode] = ctx.params.data.id;
                     if (checkIsDelete(item)) {
-                        deleteIds.push(item.id as string);
+                        deleteRequests.push({
+                            id: item.id as string,
+                            parentId: ctx.params.data.id as string,
+                        });
                     } else {
                         operationData.push(item);
                     }
                 }
 
-                if (deleteIds.length) {
-                    await this.createQueryBuilder(childCode)
-                        .where({ id: { in: deleteIds } })
-                        .transacting(transaction)
-                        .delete()
-                        .execute();
-                    await this.deletePlanner.deleteRelations(childCode, deleteIds, transaction);
-                }
+                await this.deleteChildren(
+                    childCode,
+                    childModel.parentRefFieldCode,
+                    deleteRequests,
+                    transaction,
+                );
 
                 if (operationData.length) {
                     const newData = operationData.map((item) =>
@@ -89,7 +118,7 @@ export class ChildWriter {
                     LliDbError.throw500(`模型${childCode}没有父级关联字段`);
                 }
 
-                const deleteIds: string[] = [];
+                const deleteRequests: Array<{ id: string; parentId: string }> = [];
                 const operationData: IRow[] = [];
                 for (const row of ctx.params.data as IAnyObject[]) {
                     const childData = row[toChildValueKey(childModel.code)];
@@ -99,21 +128,22 @@ export class ChildWriter {
                     for (const item of childData as IRow[]) {
                         item[childModel.parentRefFieldCode] = row.id;
                         if (checkIsDelete(item)) {
-                            deleteIds.push(item.id as string);
+                            deleteRequests.push({
+                                id: item.id as string,
+                                parentId: row.id as string,
+                            });
                         } else {
                             operationData.push(item);
                         }
                     }
                 }
 
-                if (deleteIds.length) {
-                    await this.createQueryBuilder(childCode)
-                        .where({ id: { in: deleteIds } })
-                        .transacting(transaction)
-                        .delete()
-                        .execute();
-                    await this.deletePlanner.deleteRelations(childCode, deleteIds, transaction);
-                }
+                await this.deleteChildren(
+                    childCode,
+                    childModel.parentRefFieldCode,
+                    deleteRequests,
+                    transaction,
+                );
 
                 if (operationData.length) {
                     const newData = operationData.map((item) =>

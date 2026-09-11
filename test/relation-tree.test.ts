@@ -64,6 +64,47 @@ const treeModels: IModel[] = [
     },
 ];
 
+const childDeleteModels: IModel[] = [
+    {
+        code: 'sysUser',
+        name: 'user',
+        tableName: 'sys_user',
+        attributes: { nickname: textAttribute('nickname') },
+    },
+    {
+        code: 'deleteParent',
+        name: 'delete parent',
+        tableName: 'delete_parent',
+        useRevision: true,
+        attributes: { name: textAttribute('name') },
+    },
+    {
+        code: 'deleteChild',
+        name: 'delete child',
+        tableName: 'delete_child',
+        parentCode: 'deleteParent',
+        parentRefFieldCode: 'parentId',
+        useLogicDelete: true,
+        useRevision: true,
+        attributes: {
+            parentId: textAttribute('parentId', 'parent_id', true),
+            name: textAttribute('name'),
+        },
+    },
+    {
+        code: 'deleteGrandchild',
+        name: 'delete grandchild',
+        tableName: 'delete_grandchild',
+        parentCode: 'deleteChild',
+        parentRefFieldCode: 'childId',
+        useLogicDelete: true,
+        attributes: {
+            childId: textAttribute('childId', 'child_id', true),
+            name: textAttribute('name'),
+        },
+    },
+];
+
 const createDatabase = async (models: IModel[], strict = false) => {
     const db = new Database({
         connection: {
@@ -157,6 +198,68 @@ describe('relation writes', () => {
             await expect(db.knex('article_tag')).resolves.toHaveLength(0);
         } finally {
             errorLog.mockRestore();
+            await db.close();
+        }
+    });
+});
+
+describe('nested child deletes', () => {
+    test('preserves logical-delete, revision, and descendant semantics', async () => {
+        const db = await createDatabase(childDeleteModels, true);
+        try {
+            const parent = await db.query<{ id: string }>('deleteParent').create({
+                data: {
+                    name: 'parent',
+                    deleteChildList: [
+                        {
+                            name: 'child',
+                            deleteGrandchildList: [{ name: 'grandchild' }],
+                        },
+                    ],
+                },
+            });
+            const child = await db.knex('delete_child').where({ parent_id: parent.id }).first();
+            const grandchild = await db.knex('delete_grandchild').first();
+
+            await expect(
+                db.query('deleteParent').update({
+                    where: { id: parent.id },
+                    expectedRevision: 1,
+                    data: { deleteChildList: [{ id: child.id, __op: 'delete' }] },
+                }),
+            ).resolves.toMatchObject({ revision: 2 });
+            await expect(
+                db.knex('delete_child').where({ id: child.id }).first(),
+            ).resolves.toMatchObject({ deleted: 1, revision: 2 });
+            await expect(
+                db.knex('delete_grandchild').where({ id: grandchild.id }).first(),
+            ).resolves.toMatchObject({ deleted: 1 });
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('cannot delete a child through a different parent payload', async () => {
+        const db = await createDatabase(childDeleteModels, true);
+        try {
+            const first = await db.query<{ id: string }>('deleteParent').create({
+                data: { name: 'first' },
+            });
+            const second = await db.query<{ id: string }>('deleteParent').create({
+                data: { name: 'second', deleteChildList: [{ name: 'second child' }] },
+            });
+            const secondChild = await db.knex('delete_child').where({ parent_id: second.id }).first();
+
+            await db.query('deleteParent').update({
+                where: { id: first.id },
+                expectedRevision: 1,
+                data: { deleteChildList: [{ id: secondChild.id, __op: 'delete' }] },
+            });
+
+            await expect(
+                db.knex('delete_child').where({ id: secondChild.id }).first(),
+            ).resolves.toMatchObject({ parent_id: second.id, deleted: 0, revision: 1 });
+        } finally {
             await db.close();
         }
     });
