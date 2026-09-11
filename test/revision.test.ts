@@ -14,6 +14,12 @@ const revisionModel: IModel = {
             type: SysFieldTypeEnum.TEXT,
             required: true,
         },
+        updatedAt: {
+            code: 'updatedAt',
+            name: 'updated at',
+            columnName: 'updated_at',
+            type: SysFieldTypeEnum.DATETIME,
+        },
     },
 };
 
@@ -103,6 +109,10 @@ describe('revision optimistic concurrency', () => {
                 expectedRevision: 1,
             });
             expect(updated).toMatchObject({ title: 'updated', revision: 2 });
+            const beforeConflict = await db
+                .query<{ updatedAt: Date }>('revisionRecord')
+                .findOne({ where: { id: created.id } });
+            await new Promise((resolve) => setTimeout(resolve, 5));
 
             await expect(
                 db.query('revisionRecord').update({
@@ -114,7 +124,11 @@ describe('revision optimistic concurrency', () => {
 
             await expect(
                 db.query('revisionRecord').findOne({ where: { id: created.id } }),
-            ).resolves.toMatchObject({ title: 'updated', revision: 2 });
+            ).resolves.toMatchObject({
+                title: 'updated',
+                revision: 2,
+                updatedAt: beforeConflict?.updatedAt,
+            });
         } finally {
             await db.close();
         }
