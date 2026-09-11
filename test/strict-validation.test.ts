@@ -181,6 +181,87 @@ describe('strict write validation', () => {
         }
     });
 
+    test.each([
+        ['fixed default', SysFieldTypeEnum.INT, 'not-an-integer'],
+        ['function default', SysFieldTypeEnum.SWITCH, () => 'not-a-boolean'],
+    ])('rejects an invalid %s before inserting the row', async (_label, type, defaultValue) => {
+        const defaultModel: IModel = {
+            code: 'strictDefault',
+            name: 'strict default',
+            tableName: 'strict_default',
+            attributes: {
+                value: {
+                    code: 'value',
+                    name: 'value',
+                    columnName: 'value',
+                    type,
+                    required: true,
+                    default: defaultValue as never,
+                },
+            },
+        };
+        const db = new Database({
+            connection: {
+                client: 'better-sqlite3',
+                connection: { filename: ':memory:' },
+                useNullAsDefault: true,
+                pool: { min: 1, max: 1 },
+            },
+            models: [defaultModel],
+            validation: { mode: 'strict' },
+        });
+        try {
+            await new ModelTableMigrator(db).syncAll();
+            await expect(db.query('strictDefault').create({ data: {} })).rejects.toMatchObject({
+                code: 'LLI40020',
+            });
+            await expect(db.knex('strict_default').count<{ count: number }[]>({ count: '*' })).resolves.toEqual([
+                { count: 0 },
+            ]);
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('validates and converts a valid default through the normal field pipeline', async () => {
+        const defaultModel: IModel = {
+            code: 'strictJsonDefault',
+            name: 'strict JSON default',
+            tableName: 'strict_json_default',
+            attributes: {
+                payload: {
+                    code: 'payload',
+                    name: 'payload',
+                    columnName: 'payload',
+                    type: SysFieldTypeEnum.JSON,
+                    required: true,
+                    default: () => ({ enabled: true }),
+                },
+            },
+        };
+        const db = new Database({
+            connection: {
+                client: 'better-sqlite3',
+                connection: { filename: ':memory:' },
+                useNullAsDefault: true,
+                pool: { min: 1, max: 1 },
+            },
+            models: [defaultModel],
+            validation: { mode: 'strict' },
+        });
+        try {
+            await new ModelTableMigrator(db).syncAll();
+            await expect(db.query('strictJsonDefault').create({ data: {} })).resolves.toMatchObject({
+                payload: { enabled: true },
+            });
+            await expect(db.knex('strict_json_default').select('payload').first()).resolves.toMatchObject({
+                payload: JSON.stringify({ enabled: true }),
+            });
+        } finally {
+            await db.close();
+        }
+    });
+
     test('keeps historical coercion available by default', async () => {
         const db = await createDatabase('coerce');
         try {

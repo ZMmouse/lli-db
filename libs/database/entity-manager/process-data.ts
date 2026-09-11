@@ -2,6 +2,7 @@ import { isUndefined } from 'lodash';
 import { typeUtil } from '../utils';
 import type { IModel } from '../types/model';
 import type { Database } from '../database';
+import { validateStrictFieldValue } from './validate-write';
 
 export function processData(
     db: Database,
@@ -21,22 +22,24 @@ export function processData(
             continue;
         }
 
-        if (isUndefined(data[key])) {
-            if (!isUndefined(attribute.default) && withDefaults) {
-                if (typeof attribute.default === 'function') {
-                    obj[key] = attribute.default();
-                } else {
-                    obj[key] = attribute.default;
-                }
-            }
-            continue;
+        let value = data[key];
+        if (isUndefined(value)) {
+            if (isUndefined(attribute.default) || !withDefaults) continue;
+            value =
+                typeof attribute.default === 'function'
+                    ? attribute.default()
+                    : attribute.default;
         }
 
-        if ('validate' in field && typeof field.validate === 'function' && data[key] !== null) {
-            field.validate(data[key]);
+        if (db.config.validation?.mode === 'strict') {
+            validateStrictFieldValue(db, model, key, attribute, value);
         }
 
-        obj[key] = data[key] === null ? null : field.toDB(data[key], db, attribute);
+        if ('validate' in field && typeof field.validate === 'function' && value !== null) {
+            field.validate(value);
+        }
+
+        obj[key] = value === null ? null : field.toDB(value, db, attribute);
     }
     return obj;
 }
