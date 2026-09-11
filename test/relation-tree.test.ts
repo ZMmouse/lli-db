@@ -201,9 +201,80 @@ describe('relation writes', () => {
             await db.close();
         }
     });
+
+    test('updates only a multi-quote relation without scalar fields', async () => {
+        const db = await createDatabase(relationModels(), true);
+        try {
+            const article = await db.query<{ id: string }>('article').create({
+                data: { title: 'article', tags: ['old-tag'] },
+            });
+
+            await expect(
+                db.query('article').update({
+                    where: { id: article.id },
+                    data: { tags: ['new-tag'] },
+                }),
+            ).resolves.toMatchObject({ id: article.id });
+            await expect(db.knex('article_tag').where({ article_id: article.id })).resolves.toEqual([
+                expect.objectContaining({ tag_id: 'new-tag' }),
+            ]);
+        } finally {
+            await db.close();
+        }
+    });
+
+    test('updateMany applies a relation-only replacement to every matched row', async () => {
+        const db = await createDatabase(relationModels(), true);
+        try {
+            const rows = await db.query<{ id: string }>('article').createMany({
+                data: [
+                    { title: 'first', tags: ['old-tag'] },
+                    { title: 'second', tags: ['old-tag'] },
+                ],
+            });
+
+            await expect(
+                db.query('article').updateMany({
+                    where: { id: { in: rows.map((row) => row.id) } },
+                    data: { tags: ['new-tag'] },
+                }),
+            ).resolves.toMatchObject({ count: 2 });
+            const relations = await db.knex('article_tag').orderBy('article_id');
+            expect(relations).toHaveLength(2);
+            expect(relations.every((row) => row.tag_id === 'new-tag')).toBe(true);
+        } finally {
+            await db.close();
+        }
+    });
 });
 
 describe('nested child deletes', () => {
+    test('updates only child data on a parent model without revision', async () => {
+        const models = childDeleteModels.map((model) => ({ ...model }));
+        models.find((model) => model.code === 'deleteParent')!.useRevision = false;
+        const db = await createDatabase(models, true);
+        try {
+            const parent = await db.query<{ id: string }>('deleteParent').create({
+                data: { name: 'parent', deleteChildList: [{ name: 'before' }] },
+            });
+            const child = await db.knex('delete_child').where({ parent_id: parent.id }).first();
+
+            await expect(
+                db.query('deleteParent').update({
+                    where: { id: parent.id },
+                    data: {
+                        deleteChildList: [{ id: child.id, name: 'after', __op: 'update' }],
+                    },
+                }),
+            ).resolves.toMatchObject({ id: parent.id });
+            await expect(
+                db.knex('delete_child').where({ id: child.id }).first(),
+            ).resolves.toMatchObject({ name: 'after', revision: 2 });
+        } finally {
+            await db.close();
+        }
+    });
+
     test('updates only a child owned by the current parent and increments its revision', async () => {
         const db = await createDatabase(childDeleteModels, true);
         try {

@@ -250,8 +250,10 @@ export class EntityManager {
             }
 
             const updateData = processData(this.db, data, model);
+            const hasNestedMutation =
+                this.relationWriter.hasRelations(data, code) || this.childWriter.hasChild(data, code);
 
-            if (isEmpty(updateData) && !hasRevisionField(model)) {
+            if (isEmpty(updateData) && !hasRevisionField(model) && !hasNestedMutation) {
                 ctx.result = null;
                 return;
             }
@@ -284,7 +286,10 @@ export class EntityManager {
                 if (hasRevisionField(model)) {
                     query = query.increment('revision');
                 }
-                const updatedRows = await query.returning('*').execute<IAnyObject[]>();
+                const updatedRows =
+                    !isEmpty(updateData) || hasRevisionField(model)
+                        ? await query.returning('*').execute<IAnyObject[]>()
+                        : [row];
                 const updateCount = updatedRows.length;
                 if (ctx.params.expectedRevision !== undefined && updateCount !== 1) {
                     throwRevisionConflict(this.db, code, ctx.params.expectedRevision);
@@ -336,7 +341,8 @@ export class EntityManager {
             }
 
             const updateData = processData(this.db, data, model);
-            if (isEmpty(updateData)) {
+            const hasRelationMutation = this.relationWriter.hasRelations(data, code);
+            if (isEmpty(updateData) && !hasRelationMutation) {
                 return { count: 0, updateIds: [] };
             }
 
@@ -348,13 +354,15 @@ export class EntityManager {
                     .execute();
                 const ids = rows.map((row: any) => row.id);
 
-                const updateCount = await this.createQueryBuilder(code)
-                    .update(updateData)
-                    .where({
-                        id: { in: ids },
-                    })
-                    .transacting(trx)
-                    .execute<number>();
+                const updateCount = isEmpty(updateData)
+                    ? ids.length
+                    : await this.createQueryBuilder(code)
+                          .update(updateData)
+                          .where({
+                              id: { in: ids },
+                          })
+                          .transacting(trx)
+                          .execute<number>();
 
                 const result = { count: updateCount, updateIds: ids };
                 await this.createRelations(
