@@ -674,6 +674,8 @@ pnpm run prepack
 pnpm run pack:check
 ```
 
+项目要求 pnpm `>=12.3.4 <13`。仓库将 `napi-postinstall` 固定为直接开发依赖，保证 `unrs-resolver` 在 Windows 和 Linux 的全新安装中都能执行 postinstall。
+
 当前数据库测试只运行 SQLite。每个测试文件会在系统临时目录创建独立数据库，自动同步所需模型并写入固定测试数据；测试结束后关闭连接池并删除临时目录。仓库不跟踪任何 SQLite 数据库文件，测试也不会连接 PostgreSQL 或其他外部数据库。
 
 运行示例时，数据库默认创建为当前目录的 `data.sqlite3`，也可通过 `LLI_DB_EXAMPLE_PATH` 指定本地路径。数据库及其 journal/WAL/SHM 文件均已被 Git 忽略。

@@ -10,6 +10,8 @@
 
 2026-09-11 复查继续补齐了子记录 update 的父级归属校验、子记录 revision 递增、纯关系与纯子记录更新、legacy 展示模式下的无损 DATETIME cursor、strict 模式默认 ISO UTC 毫秒契约、快照打开失败事务的关闭重试、备份目标的原子防覆盖，以及 GitHub Actions CI 与 OIDC trusted publishing 工作流。当前完整验证为 31 个通过的测试套件、275 个通过的测试；PostgreSQL 和 Electron 外部环境验证仍不计入完成结论。
 
+GitHub 首次 CI 暴露了 `unrs-resolver` 在全新 Linux 安装中找不到 `napi-postinstall` 的依赖可执行文件链接问题；现已将 `napi-postinstall@0.3.2` 固定为直接开发依赖，并在隔离临时目录完成全新安装验证。
+
 ## 1. 计划目标
 
 Minlet 需要一套受控的 Data Service。它对外提供 Resource、Schema、CRUD、事务、revision、cursor 和 migration 等协议，对内默认使用每个 App 独立的 SQLite 数据库。

@@ -66,6 +66,7 @@
         "eslint-plugin-prettier": "^5.5.1",
         "glob": "^11.0.3",
         "jest": "^30.0.4",
+        "napi-postinstall": "0.3.2",
         "pg": "^8.16.3",
         "prettier": "^3.6.2",
         "sqlite3": "^5.1.7",
