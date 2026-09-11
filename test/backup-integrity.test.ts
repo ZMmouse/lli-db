@@ -138,6 +138,25 @@ describe('SQLite backup and integrity operations', () => {
         }
     });
 
+    test('rejects replacing the active source database', async () => {
+        const { db, directory } = await createDatabase();
+        const source = join(directory, 'source.sqlite3');
+        try {
+            await expect(db.backup({ destination: source, overwrite: true })).rejects.toMatchObject(
+                { code: 'LLI400' },
+            );
+            await expect(db.query('backupRecord').findMany()).resolves.toEqual([
+                expect.objectContaining({ title: 'preserved' }),
+            ]);
+            await expect(
+                db.query('backupRecord').create({ data: { title: 'still writable' } }),
+            ).resolves.toMatchObject({ title: 'still writable' });
+        } finally {
+            await db.close();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
     test('returns a structured integrity result', async () => {
         const events: IDiagnosticEvent[] = [];
         const { db, directory } = await createDatabase(events);

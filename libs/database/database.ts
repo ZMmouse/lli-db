@@ -324,6 +324,26 @@ export class Database implements IDatabase {
                 throw new LliDbError('backup destination must be a non-empty path', 'LLI400');
             }
             const destination = resolve(options.destination);
+            const connectionConfig = this._config.connection.connection;
+            const sourceFilename =
+                typeof connectionConfig === 'string'
+                    ? connectionConfig
+                    : connectionConfig &&
+                        typeof connectionConfig === 'object' &&
+                        'filename' in connectionConfig
+                      ? String(connectionConfig.filename)
+                      : undefined;
+            if (sourceFilename && sourceFilename !== ':memory:') {
+                const source = resolve(sourceFilename);
+                const normalizePath = (path: string) =>
+                    process.platform === 'win32' ? path.toLowerCase() : path;
+                if (normalizePath(source) === normalizePath(destination)) {
+                    throw new LliDbError(
+                        'backup destination must not be the active database file',
+                        'LLI400',
+                    );
+                }
+            }
             const directory = dirname(destination);
             await mkdir(directory, { recursive: true });
             if (!options.overwrite) {
