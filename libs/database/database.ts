@@ -59,10 +59,19 @@ export class Database implements IDatabase {
         validateQueryConfig(config.query);
         validateDatabaseClient(config.connection.client);
         this.validateReadSnapshotConfig(config);
+        this.validateValidationConfig(config);
+        const validation = config.validation
+            ? {
+                  ...config.validation,
+                  datetimeFormat:
+                      config.validation.datetimeFormat ??
+                      (config.validation.mode === 'strict' ? 'iso-utc-ms' : 'legacy'),
+              }
+            : undefined;
         this._config = Object.freeze({
             ...config,
             query: config.query ? Object.freeze({ ...config.query }) : undefined,
-            validation: config.validation ? Object.freeze({ ...config.validation }) : undefined,
+            validation: validation ? Object.freeze(validation) : undefined,
             readSnapshots: config.readSnapshots
                 ? Object.freeze({ ...config.readSnapshots })
                 : undefined,
@@ -94,6 +103,23 @@ export class Database implements IDatabase {
             if (!Number.isSafeInteger(value) || value < 1) {
                 throw new LliDbError(`readSnapshots.${name} must be a positive integer`, 'LLI400');
             }
+        }
+    }
+
+    private validateValidationConfig(config: IDatabaseConfig) {
+        const validation = config.validation;
+        if (!validation) return;
+        if (validation.mode !== undefined && !['coerce', 'strict'].includes(validation.mode)) {
+            throw new LliDbError('validation.mode must be coerce or strict', 'LLI400');
+        }
+        if (
+            validation.datetimeFormat !== undefined &&
+            !['legacy', 'iso-utc-ms'].includes(validation.datetimeFormat)
+        ) {
+            throw new LliDbError(
+                'validation.datetimeFormat must be legacy or iso-utc-ms',
+                'LLI400',
+            );
         }
     }
 

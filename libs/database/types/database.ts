@@ -34,7 +34,7 @@ export interface IValidationConfig {
     mode?: IValidationMode;
     /** Reject keys that are not model attributes or declared child payloads. */
     rejectUnknownFields?: boolean;
-    /** Controls DATETIME output. Defaults to legacy for compatibility. */
+    /** Controls DATETIME validation and output. Defaults to iso-utc-ms in strict mode, otherwise legacy. */
     datetimeFormat?: IDatetimeFormat;
 }
 

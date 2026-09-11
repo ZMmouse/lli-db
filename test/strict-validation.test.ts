@@ -79,6 +79,52 @@ const createDatabase = async (mode: 'coerce' | 'strict' = 'strict') => {
 };
 
 describe('strict write validation', () => {
+    test('defaults strict datetime validation and output to canonical ISO UTC milliseconds', async () => {
+        const db = new Database({
+            connection: {
+                client: 'better-sqlite3',
+                connection: { filename: ':memory:' },
+                useNullAsDefault: true,
+            },
+            models: [model],
+            validation: { mode: 'strict' },
+        });
+        await new ModelTableMigrator(db).syncAll();
+        try {
+            await expect(
+                db.query('strictRecord').create({
+                    data: { title: 'ambiguous', occurredAt: '09/11/2026' },
+                }),
+            ).rejects.toMatchObject({ code: 'LLI40020' });
+            await expect(
+                db.query('strictRecord').create({
+                    data: { title: 'canonical', occurredAt: '2026-09-11T02:30:15.123Z' },
+                }),
+            ).resolves.toMatchObject({ occurredAt: '2026-09-11T02:30:15.123Z' });
+            expect(db.config.validation?.datetimeFormat).toBe('iso-utc-ms');
+        } finally {
+            await db.close();
+        }
+    });
+
+    test.each([
+        ['mode', { mode: 'loose' }],
+        ['datetimeFormat', { mode: 'strict', datetimeFormat: 'local' }],
+    ])('rejects an invalid validation %s configuration', (_label, validation) => {
+        expect(
+            () =>
+                new Database({
+                    connection: {
+                        client: 'better-sqlite3',
+                        connection: { filename: ':memory:' },
+                        useNullAsDefault: true,
+                    },
+                    models: [model],
+                    validation: validation as never,
+                }),
+        ).toThrow(expect.objectContaining({ code: 'LLI400' }));
+    });
+
     test('accepts strict JSON values and returns ISO UTC datetimes', async () => {
         const db = await createDatabase();
         try {
