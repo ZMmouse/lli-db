@@ -10,6 +10,11 @@ export interface IUpdateManyResult {
     updateIds: string[];
 }
 
+export interface IMutationResult<T = IAnyObject> {
+    count: number;
+    rows: T[];
+}
+
 export interface ICursorPageResult<T = IAnyObject> {
     rows: T[];
     hasMore: boolean;

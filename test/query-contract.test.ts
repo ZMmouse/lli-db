@@ -239,13 +239,13 @@ describe('returning contract', () => {
         const db = await createDatabase();
 
         try {
-            const rows = await db
+            const result = await db
                 .createQueryBuilder('contractAuthor')
                 .insert({ id: 'author-3', displayName: 'Carol' })
                 .returning('displayName')
-                .execute<Array<{ display_name: string }>>();
+                .executeMutation<{ displayName: string }>();
 
-            expect(rows).toEqual([{ display_name: 'Carol' }]);
+            expect(result).toEqual({ count: 1, rows: [{ displayName: 'Carol' }] });
         } finally {
             await db.knex.destroy();
         }

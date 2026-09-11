@@ -4,6 +4,7 @@ import type {
     IQueryConfig,
     ITransactionContext,
     IOptimisticMutationOptions,
+    IMutationResult,
 } from '../../libs';
 import { Database, ModelTableMigrator } from '../../libs';
 
@@ -90,6 +91,14 @@ async function verifyPublicTypes() {
         ...optimistic,
         data: { name: 'updated' },
     });
+
+    const mutation: IMutationResult<User> = await db
+        .createQueryBuilder('user')
+        .update({ name: 'atomic' })
+        .where({ id: 'user-1' })
+        .returning('*')
+        .executeMutation<User>();
+    mutation.rows[0]?.name.toUpperCase();
 
     const snapshot = await db.openReadSnapshot({ maxLifetimeMs: 10_000 });
     await snapshot.query<User>('user').findMany();

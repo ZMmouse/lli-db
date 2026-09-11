@@ -17,6 +17,7 @@ import { getDuplicateErrorMessage, isDuplicateKeyError } from './helpers/error';
 import { normalizeQueryParams } from './helpers/normalize-params';
 import { validateQueryPagination } from './helpers/limits';
 import { getDiagnosticResultCount, toDiagnosticError } from '../diagnostics';
+import type { IMutationResult } from '../types/i-result';
 
 export class QueryBuilder {
     private readonly db: Database;
@@ -347,7 +348,7 @@ export class QueryBuilder {
 
             let rows: any = await query;
 
-            if (this.state.returning === '*') {
+            if (this.state.returning) {
                 rows = fromReturningRow(this.db, this.model, rows);
             } else if (this.state.type === 'select') {
                 rows = fromRow(this.db, this.model, rows);
@@ -386,6 +387,24 @@ export class QueryBuilder {
             }
             throw error;
         }
+    }
+
+    async executeMutation<T = Record<string, unknown>>(): Promise<IMutationResult<T>> {
+        if (!['insert', 'update', 'delete'].includes(this.state.type ?? '')) {
+            throw new LliDbError(
+                'executeMutation requires an insert, update, or delete query',
+                'LLI400',
+            );
+        }
+        const result = await this.execute<T[] | number>();
+        if (this.state.returning) {
+            const rows = Array.isArray(result) ? result : [];
+            return { count: rows.length, rows };
+        }
+        return {
+            count: typeof result === 'number' ? result : Array.isArray(result) ? result.length : 0,
+            rows: [],
+        };
     }
 
     select(select: ISelect) {

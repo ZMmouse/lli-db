@@ -35,7 +35,7 @@ export type {
     ICursorPageParams,
     IOptimisticMutationOptions,
 } from './database/types/query';
-export type { ICursorPageResult } from './database/types/i-result';
+export type { ICursorPageResult, IMutationResult } from './database/types/i-result';
 export { ReadSnapshot, ReadSnapshotRepository } from './database/read-snapshot';
 export type {
     ITransactionCallback,

@@ -120,6 +120,35 @@ describe('revision optimistic concurrency', () => {
         }
     });
 
+    test('query builder returns affected rows from the atomic update statement', async () => {
+        const db = await createDatabase();
+        try {
+            const created = await db.query<{ id: string }>('revisionRecord').create({
+                data: { title: 'before builder update' },
+            });
+            await expect(
+                db
+                    .createQueryBuilder('revisionRecord')
+                    .update({ title: 'after builder update' })
+                    .increment('revision')
+                    .where({ id: created.id, revision: 1 })
+                    .returning('*')
+                    .executeMutation(),
+            ).resolves.toEqual({
+                count: 1,
+                rows: [
+                    expect.objectContaining({
+                        id: created.id,
+                        title: 'after builder update',
+                        revision: 2,
+                    }),
+                ],
+            });
+        } finally {
+            await db.close();
+        }
+    });
+
     test('allows only one update for the same expected revision', async () => {
         const db = await createDatabase();
         try {
